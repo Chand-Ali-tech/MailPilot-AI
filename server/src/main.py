@@ -1,60 +1,25 @@
-import os
+import uvicorn
+from fastapi import Request
 
-from dotenv import load_dotenv
-from fastapi import FastAPI, Request
-from starlette.middleware.sessions import SessionMiddleware
-from authlib.integrations.starlette_client import OAuth
+from src.utils.get_app import get_app
+from src.controllers.auth_controller import google_login, google_callback
 
-load_dotenv()
-
-app = FastAPI()
-
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=os.getenv("SESSION_SECRET"),
-)
-
-oauth = OAuth()
-
-oauth.register(
-    name="google",
-    client_id=os.getenv("GOOGLE_CLIENT_ID"),
-    client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
-    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
-    client_kwargs={
-        "scope": ("openid email profile https://www.googleapis.com/auth/gmail.readonly")
-    },
-)
+app = get_app()
 
 
 @app.get("/auth/google")
-async def google_login(request: Request):
-    redirect_uri = os.getenv("GOOGLE_REDIRECT_URI")
-
-    result = await oauth.google.authorize_redirect(
-        request,
-        redirect_uri,
-        access_type="offline",
-        prompt="consent",
-    )
-
-    print("Redirecting to Google for authentication...", result)
-
-    return result
+async def login(request: Request):
+    return await google_login(request)
 
 
 @app.get("/auth/google/callback")
-async def google_callback(request: Request):
+async def callback(request: Request):
+    return await google_callback(request)
 
-    print("Handling Google callback...")
-    print("Request query parameters:", request.query_params)
-    token = await oauth.google.authorize_access_token(request)
 
-    print("Received token from Google:", token)
+def main():
+    uvicorn.run("src.main:app", host="0.0.0.0", port=8000, reload=True)
 
-    user_info = token.get("userinfo")
 
-    return {
-        "user": user_info,
-        "token": token,
-    }
+if __name__ == "__main__":
+    main()
