@@ -1,5 +1,6 @@
 import os
 from datetime import datetime, timezone
+import httpx
 from fastapi import Depends, HTTPException, Request
 from starlette.responses import RedirectResponse
 from sqlmodel import Session, select
@@ -8,6 +9,8 @@ from src.config.database import get_session
 from src.config.oauth_config import oauth
 from src.models.user import User
 from src.models.google_connection import GoogleConnection
+
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 
 
 async def google_login(request: Request):
@@ -139,3 +142,109 @@ async def logout(request: Request):
     """Clears the session cookie."""
     request.session.clear()
     return {"message": "Logged out successfully"}
+
+
+async def refresh_google_access_token(
+    connection: GoogleConnection,
+    session: Session,
+) -> str:
+    """
+    Uses the stored refresh_token to fetch a new access_token from Google OAuth2.
+    Updates the database with the new access_token and returns it.
+    """
+    if not connection.refresh_token:
+        raise HTTPException(
+            status_code=400,
+            detail="No refresh token available. User must re-authenticate with Google.",
+        )
+
+    payload = {
+        "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+        "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+        "refresh_token": connection.refresh_token,
+        "grant_type": "refresh_token",
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(GOOGLE_TOKEN_URL, data=payload)
+
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=f"Failed to refresh Google token: {response.text}",
+        )
+
+    token_data = response.json()
+    new_access_token = token_data.get("access_token")
+
+    if not new_access_token:
+        raise HTTPException(
+            status_code=400,
+            detail="Google token response did not contain an access_token",
+        )
+
+    # Update access token in database
+    connection.access_token = new_access_token
+    connection.updated_at = datetime.now(timezone.utc)
+
+    # Google may optionally rotate the refresh token
+    if "refresh_token" in token_data:
+        connection.refresh_token = token_data["refresh_token"]
+
+    session.add(connection)
+    session.commit()
+    session.refresh(connection)
+
+    print(f"Successfully refreshed Google access token for user {connection.user_id}")
+    return new_access_token
+
+
+async def get_user_google_token(
+    user_id: int,
+    session: Session,
+) -> str:
+    """
+    Returns a valid access token for the given user_id.
+    If no access token exists, it requests a new one using the refresh token.
+    """
+    connection = session.exec(
+        select(GoogleConnection).where(GoogleConnection.user_id == user_id)
+    ).first()
+
+    if not connection:
+        raise HTTPException(
+            status_code=404,
+            detail="Google connection not found for this user.",
+        )
+
+    if not connection.access_token:
+        return await refresh_google_access_token(connection, session)
+
+    return connection.access_token
+
+
+async def refresh_user_token(
+    request: Request,
+    session: Session = Depends(get_session),
+):
+    """API endpoint to manually trigger a token refresh for the current logged in user."""
+    user_id = request.session.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    connection = session.exec(
+        select(GoogleConnection).where(GoogleConnection.user_id == user_id)
+    ).first()
+
+    if not connection:
+        raise HTTPException(
+            status_code=404,
+            detail="Google account connection not found for current user.",
+        )
+
+    new_token = await refresh_google_access_token(connection, session)
+
+    return {
+        "message": "Token refreshed successfully",
+        "updated_at": connection.updated_at.isoformat(),
+    }

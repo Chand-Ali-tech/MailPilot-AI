@@ -8,6 +8,7 @@ from src.controllers.auth_controller import (
     google_callback,
     get_current_user,
     logout,
+    refresh_user_token,
 )
 from src.config.database import create_db_and_tables, get_session
 
@@ -41,6 +42,11 @@ async def me(request: Request, session: Session = Depends(get_session)):
 @app.get("/auth/logout")
 async def handle_logout(request: Request):
     return await logout(request)
+
+
+@app.post("/auth/refresh")
+async def handle_refresh(request: Request, session: Session = Depends(get_session)):
+    return await refresh_user_token(request, session)
 
 
 def main():
