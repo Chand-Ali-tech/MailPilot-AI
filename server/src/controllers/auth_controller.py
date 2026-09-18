@@ -1,6 +1,7 @@
 import os
 from datetime import datetime, timezone
 from fastapi import Depends, HTTPException, Request
+from starlette.responses import RedirectResponse
 from sqlmodel import Session, select
 
 from src.config.database import get_session
@@ -102,11 +103,39 @@ async def google_callback(
 
     session.commit()
 
+    # Store user_id in session cookie
+    request.session["user_id"] = user.id
+
+    # Redirect user back to frontend
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    return RedirectResponse(url=frontend_url)
+
+
+async def get_current_user(
+    request: Request,
+    session: Session = Depends(get_session),
+):
+    """Returns the currently authenticated user if a valid session exists."""
+    user_id = request.session.get("user_id")
+
+    if not user_id:
+        return {"user": None}
+
+    user = session.get(User, user_id)
+    if not user:
+        request.session.clear()
+        return {"user": None}
+
     return {
-        "message": "Google account connected successfully",
         "user": {
             "id": user.id,
             "email": user.email,
             "name": user.name,
-        },
+        }
     }
+
+
+async def logout(request: Request):
+    """Clears the session cookie."""
+    request.session.clear()
+    return {"message": "Logged out successfully"}
