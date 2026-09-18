@@ -10,6 +10,7 @@ from src.controllers.auth_controller import (
     logout,
     refresh_user_token,
 )
+from src.controllers.email_controller import get_latest_emails, get_email_details
 from src.config.database import create_db_and_tables, get_session
 
 app = get_app()
@@ -23,6 +24,7 @@ def startup():
         print(f"Warning: Could not connect to database on startup: {e}")
 
 
+# Auth Routes
 @app.get("/auth/google")
 async def login(request: Request):
     return await google_login(request)
@@ -47,6 +49,27 @@ async def handle_logout(request: Request):
 @app.post("/auth/refresh")
 async def handle_refresh(request: Request, session: Session = Depends(get_session)):
     return await refresh_user_token(request, session)
+
+
+# Email Routes
+@app.get("/api/emails/latest")
+@app.get("/emails/latest")
+async def latest_emails(
+    request: Request,
+    limit: int = 5,
+    session: Session = Depends(get_session),
+):
+    return await get_latest_emails(request, limit=limit, session=session)
+
+
+@app.get("/api/emails/{message_id}")
+@app.get("/emails/{message_id}")
+async def email_details(
+    message_id: str,
+    request: Request,
+    session: Session = Depends(get_session),
+):
+    return await get_email_details(message_id, request, session=session)
 
 
 def main():

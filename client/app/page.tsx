@@ -8,13 +8,47 @@ interface User {
   name?: string | null;
 }
 
+interface Attachment {
+  filename: string;
+  mime_type: string;
+  size: number;
+  attachment_id: string;
+}
+
+interface EmailDetail {
+  id: string;
+  thread_id?: string;
+  subject: string;
+  from: string;
+  to: string;
+  cc?: string;
+  date: string;
+  snippet: string;
+  body_plain: string;
+  body_html: string;
+  attachments: Attachment[];
+  labels: string[];
+  unread: boolean;
+}
+
+interface EmailItem {
+  id: string;
+  thread_id?: string;
+  subject: string;
+  sender: string;
+  date: string;
+  snippet: string;
+  unread: boolean;
+  labels?: string[];
+}
+
 interface ChatMessage {
   id: string;
   sender: "user" | "assistant";
   text: string;
   timestamp: string;
-  type?: "text" | "emails_summary" | "action_card";
-  data?: any;
+  type?: "text" | "emails_list";
+  emails?: EmailItem[];
 }
 
 export default function Home() {
@@ -24,6 +58,14 @@ export default function Home() {
   const [inputPrompt, setInputPrompt] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [latestEmails, setLatestEmails] = useState<EmailItem[]>([]);
+  const [fetchingEmails, setFetchingEmails] = useState(false);
+
+  // Email Detail Modal State
+  const [selectedEmail, setSelectedEmail] = useState<EmailDetail | null>(null);
+  const [loadingEmailDetail, setLoadingEmailDetail] = useState(false);
+  const [emailViewMode, setEmailViewMode] = useState<"html" | "plain">("html");
+
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
   const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -41,7 +83,7 @@ export default function Home() {
             {
               id: "welcome-1",
               sender: "assistant",
-              text: `Hello ${data.user.name || "there"}! 👋 I'm your AI Email Agent. Your Gmail is connected and ready. You can ask me to search, summarize, prioritize, or draft replies to any of your emails.`,
+              text: `Hello ${data.user.name || "there"}! 👋 I'm your AI Email Agent. Your Gmail is connected. You can ask me to fetch your latest emails, view full details (HTML, body, images), or summarize threads.`,
               timestamp: new Date().toLocaleTimeString([], {
                 hour: "2-digit",
                 minute: "2-digit",
@@ -76,12 +118,100 @@ export default function Home() {
       });
       setUser(null);
       setMessages([]);
+      setLatestEmails([]);
+      setSelectedEmail(null);
     } catch (err) {
       console.error("Failed to logout:", err);
     }
   };
 
-  const handleSendMessage = (textToSend?: string) => {
+  const fetchEmailsFromBackend = async (
+    limit: number = 5,
+  ): Promise<EmailItem[]> => {
+    try {
+      const res = await fetch(
+        `${backendUrl}/api/emails/latest?limit=${limit}`,
+        {
+          credentials: "include",
+        },
+      );
+      if (!res.ok) {
+        throw new Error(`Failed to fetch emails (status ${res.status})`);
+      }
+      const data = await res.json();
+      const list = data.emails || [];
+      setLatestEmails(list);
+      return list;
+    } catch (err) {
+      console.error("Error fetching latest emails:", err);
+      return [];
+    }
+  };
+
+  const handleOpenEmailDetail = async (messageId: string) => {
+    setLoadingEmailDetail(true);
+    setSelectedEmail(null);
+    try {
+      const res = await fetch(`${backendUrl}/api/emails/${messageId}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to fetch email details");
+      const data: EmailDetail = await res.json();
+      setSelectedEmail(data);
+      setEmailViewMode(data.body_html ? "html" : "plain");
+    } catch (err) {
+      console.error("Error fetching email details:", err);
+    } finally {
+      setLoadingEmailDetail(false);
+    }
+  };
+
+  const handleFetchLatestEmailsClick = async () => {
+    setFetchingEmails(true);
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      sender: "user",
+      text: "Show my latest 5 emails",
+      timestamp: new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setIsTyping(true);
+
+    const emails = await fetchEmailsFromBackend(5);
+    setIsTyping(false);
+    setFetchingEmails(false);
+
+    if (emails.length > 0) {
+      const botMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        sender: "assistant",
+        text: `📬 Retrieved your latest ${emails.length} emails. Click any email card to view its full formatted body, images, and headers:`,
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        type: "emails_list",
+        emails: emails,
+      };
+      setMessages((prev) => [...prev, botMsg]);
+    } else {
+      const botMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        sender: "assistant",
+        text: "Could not retrieve emails or your inbox is empty. Please verify your Gmail connection.",
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      };
+      setMessages((prev) => [...prev, botMsg]);
+    }
+  };
+
+  const handleSendMessage = async (textToSend?: string) => {
     const query = (textToSend || inputPrompt).trim();
     if (!query) return;
 
@@ -99,23 +229,47 @@ export default function Home() {
     setInputPrompt("");
     setIsTyping(true);
 
-    // Placeholder response simulation for email agent (ready for backend agent API integration)
+    // If query asks for latest emails, trigger real fetch
+    if (
+      query.toLowerCase().includes("latest") ||
+      query.toLowerCase().includes("unread") ||
+      query.toLowerCase().includes("recent") ||
+      query.toLowerCase().includes("fetch") ||
+      query.toLowerCase().includes("emails")
+    ) {
+      const emails = await fetchEmailsFromBackend(5);
+      setIsTyping(false);
+
+      if (emails.length > 0) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: (Date.now() + 1).toString(),
+            sender: "assistant",
+            text: `Here are your latest ${emails.length} Gmail messages. Click any email to read full contents:`,
+            timestamp: new Date().toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+            type: "emails_list",
+            emails: emails,
+          },
+        ]);
+        return;
+      }
+    }
+
+    // Default conversational reply
     setTimeout(() => {
       let botReply =
-        "I've received your request! Once our background email agent pipeline is connected to the Gmail API, I will execute this action directly in your inbox.";
+        "I'm ready to assist with your inbox! You can ask me to fetch your latest emails or click on an email to inspect its full body and images.";
 
       if (
-        query.toLowerCase().includes("unread") ||
-        query.toLowerCase().includes("summarize")
-      ) {
-        botReply =
-          "📬 I checked your inbox: You have 12 unread emails today. 3 are high priority (1 invoice reminder, 1 project update from your team, and 1 client inquiry). Would you like me to draft replies to the client inquiry?";
-      } else if (
         query.toLowerCase().includes("invoice") ||
         query.toLowerCase().includes("receipt")
       ) {
         botReply =
-          "🧾 Found 4 receipt emails from this month: AWS Cloud ($14.20), GitHub ($4.00), Google Workspace ($12.00), and Stripe. All total: $30.20.";
+          "🧾 Scanning for invoices... You can click 'Fetch latest 5 emails' to view and inspect receipts and messages directly.";
       }
 
       setMessages((prev) => [
@@ -131,29 +285,27 @@ export default function Home() {
         },
       ]);
       setIsTyping(false);
-    }, 1000);
+    }, 800);
   };
 
   const suggestedPrompts = [
     {
-      title: "Summarize unread emails",
-      description: "Quick digest of today's key messages",
+      title: "Fetch latest 5 emails",
+      description: "Load latest messages with full HTML body & images",
+      icon: "📬",
+      action: handleFetchLatestEmailsClick,
+    },
+    {
+      title: "Summarize recent updates",
+      description: "Get key points from latest emails",
       icon: "📊",
+      action: () => handleSendMessage("Summarize my recent updates"),
     },
     {
       title: "Find urgent action items",
       description: "Emails waiting on your reply",
       icon: "⚡",
-    },
-    {
-      title: "Extract monthly receipts",
-      description: "List invoices and subscription charges",
-      icon: "🧾",
-    },
-    {
-      title: "Draft email reply",
-      description: "Create context-aware response",
-      icon: "✍️",
+      action: () => handleSendMessage("Find urgent action items"),
     },
   ];
 
@@ -180,16 +332,16 @@ export default function Home() {
   // ==========================================
   if (user) {
     return (
-      <div className="flex h-screen bg-[#f7f5f2] font-sans text-[#242321] overflow-hidden">
+      <div className="flex h-screen bg-[#f7f5f2] font-sans text-[#242321] overflow-hidden relative">
         {/* Left Sidebar */}
         <aside
           className={`${
-            isSidebarOpen ? "w-72" : "w-0 -translate-x-full"
+            isSidebarOpen ? "w-80" : "w-0 -translate-x-full"
           } transition-all duration-300 ease-in-out border-r border-[#e8e4de] bg-white flex flex-col justify-between overflow-hidden shrink-0`}
         >
           <div className="flex flex-col h-full p-4 overflow-y-auto">
             {/* App Brand */}
-            <div className="flex items-center gap-3 px-2 py-2 mb-6">
+            <div className="flex items-center gap-3 px-2 py-2 mb-4">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#d94f3d] to-[#e97745] text-white font-bold text-base shadow-sm">
                 M
               </div>
@@ -204,16 +356,17 @@ export default function Home() {
             </div>
 
             {/* Quick Actions / Suggested Prompts */}
-            <div className="mb-6">
+            <div className="mb-5">
               <span className="px-2 text-xs font-semibold text-[#8c8881] uppercase tracking-wider">
-                Quick Shortcuts
+                Quick Actions
               </span>
               <div className="mt-2 space-y-1.5">
                 {suggestedPrompts.map((item, idx) => (
                   <button
                     key={idx}
-                    onClick={() => handleSendMessage(item.title)}
-                    className="w-full flex items-start gap-2.5 p-2.5 rounded-xl text-left hover:bg-[#f7f5f2] transition-colors group cursor-pointer"
+                    onClick={item.action}
+                    disabled={fetchingEmails}
+                    className="w-full flex items-start gap-2.5 p-2.5 rounded-xl text-left hover:bg-[#f7f5f2] transition-colors group cursor-pointer disabled:opacity-50"
                   >
                     <span className="text-base p-1 rounded-lg bg-gray-50 border border-gray-100 group-hover:bg-white transition-colors">
                       {item.icon}
@@ -230,6 +383,44 @@ export default function Home() {
                 ))}
               </div>
             </div>
+
+            {/* Live Latest Emails Mini-Feed */}
+            {latestEmails.length > 0 && (
+              <div className="mb-4">
+                <div className="flex items-center justify-between px-2 mb-2">
+                  <span className="text-xs font-semibold text-[#8c8881] uppercase tracking-wider">
+                    Recent Messages ({latestEmails.length})
+                  </span>
+                  <button
+                    onClick={() => fetchEmailsFromBackend(5)}
+                    className="text-[11px] text-[#d94f3d] hover:underline cursor-pointer font-medium"
+                  >
+                    Refresh
+                  </button>
+                </div>
+                <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                  {latestEmails.map((email) => (
+                    <button
+                      key={email.id}
+                      onClick={() => handleOpenEmailDetail(email.id)}
+                      className="w-full p-2.5 rounded-xl bg-[#faf8f5] hover:bg-white border border-[#ebe7e1] hover:border-[#d94f3d]/40 text-left text-xs transition-all cursor-pointer shadow-2xs group"
+                    >
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <span className="font-semibold text-[#242321] group-hover:text-[#d94f3d] truncate max-w-[140px]">
+                          {email.sender.split("<")[0].trim()}
+                        </span>
+                        {email.unread && (
+                          <span className="h-2 w-2 rounded-full bg-[#d94f3d] shrink-0" />
+                        )}
+                      </div>
+                      <p className="text-[#595650] font-medium truncate">
+                        {email.subject}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Account Status Card */}
             <div className="mt-auto pt-4 border-t border-[#e8e4de]">
@@ -306,6 +497,19 @@ export default function Home() {
             </div>
 
             <div className="flex items-center gap-3">
+              <button
+                onClick={handleFetchLatestEmailsClick}
+                disabled={fetchingEmails}
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-[#dedad3] hover:border-[#d94f3d] text-xs font-semibold text-[#242321] hover:text-[#d94f3d] shadow-2xs transition-all cursor-pointer disabled:opacity-50"
+              >
+                <span>📬</span>
+                <span>
+                  {fetchingEmails
+                    ? "Loading Emails..."
+                    : "Fetch Latest 5 Emails"}
+                </span>
+              </button>
+
               <div className="flex items-center gap-2 rounded-full bg-[#fbf9f6] border border-[#e8e4de] px-3 py-1 text-xs">
                 <div className="h-5 w-5 rounded-full bg-[#d94f3d] text-white flex items-center justify-center text-[10px] font-bold">
                   {user.name ? user.name.charAt(0).toUpperCase() : "U"}
@@ -341,8 +545,55 @@ export default function Home() {
                     }`}
                   >
                     <p className="whitespace-pre-wrap">{msg.text}</p>
+
+                    {/* Render Email Cards if message contains emails */}
+                    {msg.type === "emails_list" &&
+                      msg.emails &&
+                      msg.emails.length > 0 && (
+                        <div className="mt-3.5 space-y-2.5">
+                          {msg.emails.map((email) => (
+                            <div
+                              key={email.id}
+                              onClick={() => handleOpenEmailDetail(email.id)}
+                              className="group rounded-xl border border-[#ebe7e1] bg-[#faf8f5] hover:bg-white hover:border-[#d94f3d]/50 p-3.5 text-left transition-all cursor-pointer hover:shadow-xs"
+                            >
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <span className="font-semibold text-xs text-[#1f1e1c] group-hover:text-[#d94f3d] transition-colors truncate">
+                                  {email.sender}
+                                </span>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {email.unread && (
+                                    <span className="rounded-full bg-[#d94f3d]/10 px-2 py-0.5 text-[10px] font-semibold text-[#d94f3d]">
+                                      Unread
+                                    </span>
+                                  )}
+                                  <span className="text-[10px] text-[#9e9a93]">
+                                    {email.date
+                                      ? new Date(
+                                          email.date,
+                                        ).toLocaleDateString()
+                                      : ""}
+                                  </span>
+                                </div>
+                              </div>
+                              <h4 className="font-semibold text-xs text-[#33302c] mb-1">
+                                {email.subject}
+                              </h4>
+                              <p className="text-xs text-[#716e69] line-clamp-2 leading-relaxed">
+                                {email.snippet}
+                              </p>
+                              <div className="mt-2.5 flex items-center justify-between pt-2 border-t border-[#f0ece6] text-[11px] text-[#d94f3d] font-medium">
+                                <span>
+                                  Click to read full email & HTML body →
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
                     <span
-                      className={`block mt-1.5 text-[10px] ${
+                      className={`block mt-2 text-[10px] ${
                         msg.sender === "user"
                           ? "text-gray-400 text-right"
                           : "text-[#9e9a93]"
@@ -391,16 +642,23 @@ export default function Home() {
             <div className="max-w-3xl mx-auto">
               {/* Quick suggestions pills */}
               <div className="flex items-center gap-2 overflow-x-auto pb-2.5 mb-1 no-scrollbar text-xs">
-                {suggestedPrompts.slice(0, 3).map((item, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleSendMessage(item.title)}
-                    className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-[#e0dcce] hover:border-[#d94f3d]/50 hover:bg-[#fff7f5] text-[#595650] hover:text-[#d94f3d] transition-all cursor-pointer"
-                  >
-                    <span>{item.icon}</span>
-                    <span>{item.title}</span>
-                  </button>
-                ))}
+                <button
+                  onClick={handleFetchLatestEmailsClick}
+                  disabled={fetchingEmails}
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-[#e0dcce] hover:border-[#d94f3d]/50 hover:bg-[#fff7f5] text-[#595650] hover:text-[#d94f3d] transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <span>📬</span>
+                  <span>Fetch Latest 5 Emails</span>
+                </button>
+                <button
+                  onClick={() =>
+                    handleSendMessage("Summarize my unread emails")
+                  }
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-[#e0dcce] hover:border-[#d94f3d]/50 hover:bg-[#fff7f5] text-[#595650] hover:text-[#d94f3d] transition-all cursor-pointer"
+                >
+                  <span>📊</span>
+                  <span>Summarize Unread</span>
+                </button>
               </div>
 
               {/* Text Input Box */}
@@ -415,7 +673,7 @@ export default function Home() {
                   type="text"
                   value={inputPrompt}
                   onChange={(e) => setInputPrompt(e.target.value)}
-                  placeholder="Ask your email agent (e.g. 'Summarize emails from yesterday')..."
+                  placeholder="Ask your email agent (e.g. 'Show latest 5 emails')..."
                   className="w-full bg-transparent px-4 py-2.5 text-sm text-[#242321] placeholder-[#9e9a93] focus:outline-none"
                 />
                 <button
@@ -445,6 +703,185 @@ export default function Home() {
             </div>
           </div>
         </main>
+
+        {/* ========================================== */}
+        {/* EMAIL DETAIL READER MODAL / SLIDEOVER      */}
+        {/* ========================================== */}
+        {(selectedEmail || loadingEmailDetail) && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 sm:p-6 animate-in fade-in duration-200">
+            <div className="w-full max-w-4xl h-[90vh] bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-[#dedad3]">
+              {loadingEmailDetail ? (
+                <div className="flex-1 flex flex-col items-center justify-center p-8">
+                  <div className="h-10 w-10 animate-spin rounded-full border-3 border-[#d94f3d] border-t-transparent" />
+                  <p className="mt-4 text-sm font-medium text-[#716e69]">
+                    Loading email body & contents...
+                  </p>
+                </div>
+              ) : selectedEmail ? (
+                <>
+                  {/* Modal Header */}
+                  <header className="p-5 sm:px-6 border-b border-[#e8e4de] bg-[#fbf9f6] flex items-start justify-between shrink-0">
+                    <div className="flex-1 min-w-0 pr-4">
+                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                        {selectedEmail.unread && (
+                          <span className="rounded-full bg-[#d94f3d]/10 px-2.5 py-0.5 text-xs font-semibold text-[#d94f3d]">
+                            Unread
+                          </span>
+                        )}
+                        <span className="text-xs text-[#8c8881]">
+                          {selectedEmail.date}
+                        </span>
+                        {selectedEmail.labels &&
+                          selectedEmail.labels.slice(0, 3).map((l, i) => (
+                            <span
+                              key={i}
+                              className="text-[10px] rounded-md bg-gray-100 text-gray-600 px-2 py-0.5 font-mono"
+                            >
+                              {l}
+                            </span>
+                          ))}
+                      </div>
+
+                      <h2 className="text-lg sm:text-xl font-bold text-[#1f1e1c] leading-snug">
+                        {selectedEmail.subject}
+                      </h2>
+
+                      <div className="mt-2 text-xs text-[#5c5852] space-y-0.5">
+                        <p>
+                          <span className="font-semibold text-[#3b3834]">
+                            From:
+                          </span>{" "}
+                          {selectedEmail.from}
+                        </p>
+                        {selectedEmail.to && (
+                          <p>
+                            <span className="font-semibold text-[#3b3834]">
+                              To:
+                            </span>{" "}
+                            {selectedEmail.to}
+                          </p>
+                        )}
+                        {selectedEmail.cc && (
+                          <p>
+                            <span className="font-semibold text-[#3b3834]">
+                              Cc:
+                            </span>{" "}
+                            {selectedEmail.cc}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {/* View Mode Toggle (HTML vs Plain Text) */}
+                      {selectedEmail.body_html && (
+                        <div className="flex rounded-xl bg-gray-100 p-1 border border-gray-200 text-xs">
+                          <button
+                            onClick={() => setEmailViewMode("html")}
+                            className={`px-3 py-1 rounded-lg font-medium transition-all cursor-pointer ${
+                              emailViewMode === "html"
+                                ? "bg-white text-[#1f1e1c] shadow-xs"
+                                : "text-gray-500 hover:text-gray-900"
+                            }`}
+                          >
+                            HTML View
+                          </button>
+                          <button
+                            onClick={() => setEmailViewMode("plain")}
+                            className={`px-3 py-1 rounded-lg font-medium transition-all cursor-pointer ${
+                              emailViewMode === "plain"
+                                ? "bg-white text-[#1f1e1c] shadow-xs"
+                                : "text-gray-500 hover:text-gray-900"
+                            }`}
+                          >
+                            Plain Text
+                          </button>
+                        </div>
+                      )}
+
+                      <button
+                        onClick={() => setSelectedEmail(null)}
+                        className="h-9 w-9 rounded-xl border border-[#dedad3] bg-white text-[#716e69] hover:bg-gray-100 flex items-center justify-center transition-colors cursor-pointer"
+                        title="Close"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </header>
+
+                  {/* Attachments Section if present */}
+                  {selectedEmail.attachments &&
+                    selectedEmail.attachments.length > 0 && (
+                      <div className="px-6 py-2.5 bg-[#faf8f5] border-b border-[#e8e4de] flex items-center gap-2 overflow-x-auto text-xs shrink-0">
+                        <span className="font-semibold text-[#5c5852] shrink-0">
+                          📎 Attachments ({selectedEmail.attachments.length}):
+                        </span>
+                        {selectedEmail.attachments.map((att, idx) => (
+                          <div
+                            key={idx}
+                            className="shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-[#e0dcce] text-[#33302c]"
+                          >
+                            <span>📄</span>
+                            <span className="font-medium max-w-[150px] truncate">
+                              {att.filename}
+                            </span>
+                            <span className="text-[10px] text-gray-400">
+                              ({Math.round(att.size / 1024)} KB)
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                  {/* Email Content Body */}
+                  <div className="flex-1 overflow-y-auto p-0 relative bg-white">
+                    {emailViewMode === "html" && selectedEmail.body_html ? (
+                      <iframe
+                        title="Email Body HTML"
+                        srcDoc={`
+                          <!DOCTYPE html>
+                          <html>
+                            <head>
+                              <meta charset="utf-8">
+                              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                              <style>
+                                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 24px; color: #242321; line-height: 1.6; margin: 0; }
+                                img { max-width: 100% !important; height: auto !important; }
+                                a { color: #d94f3d; }
+                              </style>
+                            </head>
+                            <body>
+                              ${selectedEmail.body_html}
+                            </body>
+                          </html>
+                        `}
+                        sandbox="allow-same-origin allow-popups"
+                        className="w-full h-full min-h-[450px] border-0"
+                      />
+                    ) : (
+                      <div className="p-6">
+                        <pre className="whitespace-pre-wrap font-sans text-sm text-[#242321] leading-relaxed">
+                          {selectedEmail.body_plain || "No plain text content."}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Modal Footer */}
+                  <footer className="px-6 py-3 border-t border-[#e8e4de] bg-[#fbf9f6] flex items-center justify-between text-xs text-[#8c8881] shrink-0">
+                    <span>Message ID: {selectedEmail.id}</span>
+                    <button
+                      onClick={() => setSelectedEmail(null)}
+                      className="px-4 py-1.5 rounded-xl bg-[#242321] text-white font-medium hover:bg-black transition-colors cursor-pointer"
+                    >
+                      Close Viewer
+                    </button>
+                  </footer>
+                </>
+              ) : null}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
