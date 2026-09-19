@@ -49,6 +49,154 @@ interface ChatMessage {
   timestamp: string;
   type?: "text" | "emails_list";
   emails?: EmailItem[];
+  tools_used?: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Lightweight markdown renderer — no external library needed
+// Handles: **bold**, *italic*, # headings, - bullets, 1. numbered, `code`, ---
+// ---------------------------------------------------------------------------
+function MarkdownMessage({ text }: { text: string }) {
+  const lines = text.split("\n");
+  const elements: React.ReactNode[] = [];
+  let i = 0;
+
+  const renderInline = (line: string): React.ReactNode => {
+    // Split on **bold**, *italic*, `code`
+    const parts = line.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g);
+    return parts.map((part, idx) => {
+      if (part.startsWith("**") && part.endsWith("**"))
+        return (
+          <strong key={idx} className="font-semibold text-[#1f1e1c]">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      if (part.startsWith("*") && part.endsWith("*"))
+        return <em key={idx}>{part.slice(1, -1)}</em>;
+      if (part.startsWith("`") && part.endsWith("`"))
+        return (
+          <code
+            key={idx}
+            className="bg-[#f2efe9] text-[#c44332] rounded px-1 py-0.5 text-[11px] font-mono"
+          >
+            {part.slice(1, -1)}
+          </code>
+        );
+      return part;
+    });
+  };
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Headings
+    if (line.startsWith("### ")) {
+      elements.push(
+        <h4 key={i} className="font-bold text-[#1f1e1c] text-sm mt-3 mb-1">
+          {line.slice(4)}
+        </h4>,
+      );
+    } else if (line.startsWith("## ")) {
+      elements.push(
+        <h3 key={i} className="font-bold text-[#1f1e1c] text-base mt-3 mb-1">
+          {line.slice(3)}
+        </h3>,
+      );
+    } else if (line.startsWith("# ")) {
+      elements.push(
+        <h2 key={i} className="font-bold text-[#1f1e1c] text-lg mt-3 mb-1">
+          {line.slice(2)}
+        </h2>,
+      );
+    }
+    // Blockquote — strip the ">" prefix, render content normally
+    else if (line.startsWith("> ") || line === ">") {
+      if (line === ">") {
+        elements.push(<div key={i} className="h-1" />);
+      } else {
+        elements.push(
+          <p key={i} className="leading-relaxed">
+            {renderInline(line.slice(2))}
+          </p>,
+        );
+      }
+    }
+    // Horizontal rule
+    else if (line.match(/^---+$/)) {
+      elements.push(<hr key={i} className="my-3 border-[#e8e4de]" />);
+    }
+    // Bullet list  (-, •, or * prefix)
+    else if (
+      line.startsWith("- ") ||
+      line.startsWith("• ") ||
+      line.startsWith("* ")
+    ) {
+      const listItems: React.ReactNode[] = [];
+      while (
+        i < lines.length &&
+        (lines[i].startsWith("- ") ||
+          lines[i].startsWith("• ") ||
+          lines[i].startsWith("* "))
+      ) {
+        const content = lines[i].startsWith("* ")
+          ? lines[i].slice(2)
+          : lines[i].slice(2);
+        listItems.push(
+          <li key={i} className="flex gap-2 items-start">
+            <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-[#d94f3d] shrink-0" />
+            <span>{renderInline(content)}</span>
+          </li>,
+        );
+        i++;
+      }
+      elements.push(
+        <ul key={`ul-${i}`} className="my-2 space-y-1.5 ml-1">
+          {listItems}
+        </ul>,
+      );
+      continue;
+    }
+    // Numbered list
+    else if (/^\d+\.\s/.test(line)) {
+      const listItems: React.ReactNode[] = [];
+      let n = 1;
+      while (i < lines.length && /^\d+\.\s/.test(lines[i])) {
+        const content = lines[i].replace(/^\d+\.\s/, "");
+        listItems.push(
+          <li key={i} className="flex gap-2 items-start">
+            <span className="shrink-0 font-semibold text-[#d94f3d] text-xs mt-0.5 w-4">
+              {n}.
+            </span>
+            <span>{renderInline(content)}</span>
+          </li>,
+        );
+        i++;
+        n++;
+      }
+      elements.push(
+        <ol key={`ol-${i}`} className="my-2 space-y-1.5 ml-1">
+          {listItems}
+        </ol>,
+      );
+      continue;
+    }
+    // Empty line → spacing
+    else if (line.trim() === "") {
+      elements.push(<div key={i} className="h-2" />);
+    }
+    // Normal paragraph line
+    else {
+      elements.push(
+        <p key={i} className="leading-relaxed">
+          {renderInline(line)}
+        </p>,
+      );
+    }
+
+    i++;
+  }
+
+  return <div className="space-y-0.5 text-sm">{elements}</div>;
 }
 
 export default function Home() {
@@ -229,48 +377,18 @@ export default function Home() {
     setInputPrompt("");
     setIsTyping(true);
 
-    // If query asks for latest emails, trigger real fetch
-    if (
-      query.toLowerCase().includes("latest") ||
-      query.toLowerCase().includes("unread") ||
-      query.toLowerCase().includes("recent") ||
-      query.toLowerCase().includes("fetch") ||
-      query.toLowerCase().includes("emails")
-    ) {
-      const emails = await fetchEmailsFromBackend(5);
-      setIsTyping(false);
+    try {
+      const res = await fetch(`${backendUrl}/agent/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ message: query }),
+      });
 
-      if (emails.length > 0) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: (Date.now() + 1).toString(),
-            sender: "assistant",
-            text: `Here are your latest ${emails.length} Gmail messages. Click any email to read full contents:`,
-            timestamp: new Date().toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
-            type: "emails_list",
-            emails: emails,
-          },
-        ]);
-        return;
-      }
-    }
+      const data = await res.json();
 
-    // Default conversational reply
-    setTimeout(() => {
-      let botReply =
-        "I'm ready to assist with your inbox! You can ask me to fetch your latest emails or click on an email to inspect its full body and images.";
-
-      if (
-        query.toLowerCase().includes("invoice") ||
-        query.toLowerCase().includes("receipt")
-      ) {
-        botReply =
-          "🧾 Scanning for invoices... You can click 'Fetch latest 5 emails' to view and inspect receipts and messages directly.";
-      }
+      const botReply =
+        data.reply || data.error || "I couldn't process that request.";
 
       setMessages((prev) => [
         ...prev,
@@ -282,10 +400,26 @@ export default function Home() {
             hour: "2-digit",
             minute: "2-digit",
           }),
+          tools_used: data.tools_used || [],
         },
       ]);
+    } catch (err) {
+      console.error("Agent error:", err);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: (Date.now() + 1).toString(),
+          sender: "assistant",
+          text: "⚠️ Failed to reach the agent. Please make sure the backend is running.",
+          timestamp: new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        },
+      ]);
+    } finally {
       setIsTyping(false);
-    }, 800);
+    }
   };
 
   const suggestedPrompts = [
@@ -523,7 +657,7 @@ export default function Home() {
 
           {/* Chat Messages Scrollable Area */}
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
-            <div className="max-w-3xl mx-auto space-y-4">
+            <div className="max-w-3xl mx-auto space-y-5">
               {messages.map((msg) => (
                 <div
                   key={msg.id}
@@ -531,22 +665,52 @@ export default function Home() {
                     msg.sender === "user" ? "justify-end" : "justify-start"
                   }`}
                 >
+                  {/* AI Avatar */}
                   {msg.sender === "assistant" && (
-                    <div className="h-8 w-8 rounded-xl bg-gradient-to-tr from-[#d94f3d] to-[#e97745] flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5 shadow-sm">
+                    <div className="h-8 w-8 rounded-xl bg-gradient-to-tr from-[#d94f3d] to-[#e97745] flex items-center justify-center text-white text-xs font-bold shrink-0 mt-1 shadow-sm">
                       AI
                     </div>
                   )}
 
                   <div
-                    className={`max-w-[85%] sm:max-w-xl rounded-2xl p-4 text-sm leading-relaxed shadow-xs ${
+                    className={`max-w-[88%] sm:max-w-2xl rounded-2xl text-sm leading-relaxed shadow-xs ${
                       msg.sender === "user"
-                        ? "bg-[#242321] text-white rounded-tr-xs"
-                        : "bg-white text-[#242321] border border-[#e8e4de] rounded-tl-xs"
+                        ? "bg-[#242321] text-white rounded-tr-xs px-4 py-3"
+                        : "bg-white text-[#242321] border border-[#e8e4de] rounded-tl-xs px-5 py-4"
                     }`}
                   >
-                    <p className="whitespace-pre-wrap">{msg.text}</p>
+                    {/* Message body */}
+                    {msg.sender === "user" ? (
+                      <p className="whitespace-pre-wrap">{msg.text}</p>
+                    ) : (
+                      <MarkdownMessage text={msg.text} />
+                    )}
 
-                    {/* Render Email Cards if message contains emails */}
+                    {/* Tool usage badges */}
+                    {msg.sender === "assistant" &&
+                      msg.tools_used &&
+                      msg.tools_used.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-[#f0ece6] flex flex-wrap gap-1.5">
+                          <span className="text-[10px] text-[#a09c96] font-medium mr-1 self-center">
+                            Used:
+                          </span>
+                          {msg.tools_used.map((tool, i) => (
+                            <span
+                              key={i}
+                              className="inline-flex items-center gap-1 rounded-full bg-[#fff7f5] border border-[#f5d5d0] px-2.5 py-0.5 text-[10px] font-semibold text-[#c44332]"
+                            >
+                              {tool === "search_emails"
+                                ? "🔍"
+                                : tool === "send_email"
+                                  ? "📤"
+                                  : "🔧"}{" "}
+                              {tool.replace(/_/g, " ")}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                    {/* Email cards (from manual fetch button) */}
                     {msg.type === "emails_list" &&
                       msg.emails &&
                       msg.emails.length > 0 && (
@@ -582,51 +746,55 @@ export default function Home() {
                               <p className="text-xs text-[#716e69] line-clamp-2 leading-relaxed">
                                 {email.snippet}
                               </p>
-                              <div className="mt-2.5 flex items-center justify-between pt-2 border-t border-[#f0ece6] text-[11px] text-[#d94f3d] font-medium">
-                                <span>
-                                  Click to read full email & HTML body →
-                                </span>
+                              <div className="mt-2.5 pt-2 border-t border-[#f0ece6] text-[11px] text-[#d94f3d] font-medium">
+                                Click to read full email & HTML body →
                               </div>
                             </div>
                           ))}
                         </div>
                       )}
 
+                    {/* Timestamp */}
                     <span
                       className={`block mt-2 text-[10px] ${
                         msg.sender === "user"
                           ? "text-gray-400 text-right"
-                          : "text-[#9e9a93]"
+                          : "text-[#b0aca6]"
                       }`}
                     >
                       {msg.timestamp}
                     </span>
                   </div>
 
+                  {/* User Avatar */}
                   {msg.sender === "user" && (
-                    <div className="h-8 w-8 rounded-xl bg-[#242321] text-white flex items-center justify-center text-xs font-semibold shrink-0 mt-0.5">
+                    <div className="h-8 w-8 rounded-xl bg-[#3b3834] text-white flex items-center justify-center text-xs font-semibold shrink-0 mt-1">
                       {user.name ? user.name.charAt(0).toUpperCase() : "U"}
                     </div>
                   )}
                 </div>
               ))}
 
+              {/* Typing indicator */}
               {isTyping && (
                 <div className="flex gap-3 justify-start">
-                  <div className="h-8 w-8 rounded-xl bg-gradient-to-tr from-[#d94f3d] to-[#e97745] flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-sm">
+                  <div className="h-8 w-8 rounded-xl bg-gradient-to-tr from-[#d94f3d] to-[#e97745] flex items-center justify-center text-white text-xs font-bold shrink-0 mt-1 shadow-sm">
                     AI
                   </div>
-                  <div className="rounded-2xl rounded-tl-xs bg-white border border-[#e8e4de] px-4 py-3 text-sm flex items-center gap-1.5 shadow-xs">
+                  <div className="rounded-2xl rounded-tl-xs bg-white border border-[#e8e4de] px-4 py-3.5 flex items-center gap-1.5 shadow-xs">
+                    <span className="text-xs text-[#a09c96] mr-1">
+                      Thinking
+                    </span>
                     <span
-                      className="h-2 w-2 rounded-full bg-[#d94f3d] animate-bounce"
+                      className="h-1.5 w-1.5 rounded-full bg-[#d94f3d] animate-bounce"
                       style={{ animationDelay: "0ms" }}
                     />
                     <span
-                      className="h-2 w-2 rounded-full bg-[#d94f3d] animate-bounce"
+                      className="h-1.5 w-1.5 rounded-full bg-[#d94f3d] animate-bounce"
                       style={{ animationDelay: "150ms" }}
                     />
                     <span
-                      className="h-2 w-2 rounded-full bg-[#d94f3d] animate-bounce"
+                      className="h-1.5 w-1.5 rounded-full bg-[#d94f3d] animate-bounce"
                       style={{ animationDelay: "300ms" }}
                     />
                   </div>
