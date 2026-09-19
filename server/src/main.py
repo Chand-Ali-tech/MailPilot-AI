@@ -11,7 +11,12 @@ from src.controllers.auth_controller import (
     refresh_user_token,
 )
 from src.controllers.email_controller import get_latest_emails, get_email_details
-from src.controllers.agent_controller import ChatRequest, agent_chat
+from src.controllers.agent_controller import (
+    ChatRequest,
+    ResumeRequest,
+    agent_chat,
+    agent_resume,
+)
 from src.config.database import create_db_and_tables, get_session
 
 app = get_app()
@@ -73,10 +78,19 @@ async def email_details(
     return await get_email_details(message_id, request, session=session)
 
 
-# Agent Route
+# Agent Routes
 @app.post("/agent/chat")
-async def chat(request: Request, body: ChatRequest, session: Session = Depends(get_session)):
+async def chat(
+    request: Request, body: ChatRequest, session: Session = Depends(get_session)
+):
     return await agent_chat(request, body, session)
+
+
+@app.post("/agent/resume")
+async def resume(
+    request: Request, body: ResumeRequest, session: Session = Depends(get_session)
+):
+    return await agent_resume(request, body, session)
 
 
 def main():

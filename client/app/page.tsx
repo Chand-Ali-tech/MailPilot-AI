@@ -50,6 +50,14 @@ interface ChatMessage {
   type?: "text" | "emails_list";
   emails?: EmailItem[];
   tools_used?: string[];
+  status?: "complete" | "pending_approval";
+  thread_id?: string;
+  pending_action?: {
+    tool: string;
+    to: string;
+    subject: string;
+    body: string;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -384,25 +392,41 @@ export default function Home() {
         credentials: "include",
         body: JSON.stringify({ message: query }),
       });
-
       const data = await res.json();
+      const timestamp = new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
 
-      const botReply =
-        data.reply || data.error || "I couldn't process that request.";
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: (Date.now() + 1).toString(),
-          sender: "assistant",
-          text: botReply,
-          timestamp: new Date().toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-          tools_used: data.tools_used || [],
-        },
-      ]);
+      if (data.status === "pending_approval") {
+        // Agent paused — show approval card
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: (Date.now() + 1).toString(),
+            sender: "assistant",
+            text: "",
+            timestamp,
+            status: "pending_approval",
+            thread_id: data.thread_id,
+            pending_action: data.pending_action,
+          },
+        ]);
+      } else {
+        // Agent completed
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: (Date.now() + 1).toString(),
+            sender: "assistant",
+            text:
+              data.reply || data.error || "I couldn't process that request.",
+            timestamp,
+            status: "complete",
+            tools_used: data.tools_used || [],
+          },
+        ]);
+      }
     } catch (err) {
       console.error("Agent error:", err);
       setMessages((prev) => [
@@ -411,6 +435,71 @@ export default function Home() {
           id: (Date.now() + 1).toString(),
           sender: "assistant",
           text: "⚠️ Failed to reach the agent. Please make sure the backend is running.",
+          timestamp: new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        },
+      ]);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  const handleResume = async (
+    msgId: string,
+    thread_id: string,
+    action: "approve" | "cancel",
+  ) => {
+    // Replace the approval card message with a "processing" state
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === msgId
+          ? {
+              ...m,
+              status: "complete" as const,
+              text:
+                action === "approve"
+                  ? "✅ Approved — sending email..."
+                  : "❌ Cancelled.",
+            }
+          : m,
+      ),
+    );
+    setIsTyping(true);
+
+    try {
+      const res = await fetch(`${backendUrl}/agent/resume`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ thread_id, action }),
+      });
+      const data = await res.json();
+      const timestamp = new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: (Date.now() + 1).toString(),
+          sender: "assistant",
+          text: data.reply || data.error || "Done.",
+          timestamp,
+          status: "complete",
+          tools_used: data.tools_used || [],
+        },
+      ]);
+    } catch (err) {
+      console.error("Resume error:", err);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: (Date.now() + 1).toString(),
+          sender: "assistant",
+          text: "⚠️ Failed to resume. Please try again.",
           timestamp: new Date().toLocaleTimeString([], {
             hour: "2-digit",
             minute: "2-digit",
@@ -682,6 +771,63 @@ export default function Home() {
                     {/* Message body */}
                     {msg.sender === "user" ? (
                       <p className="whitespace-pre-wrap">{msg.text}</p>
+                    ) : msg.status === "pending_approval" &&
+                      msg.pending_action ? (
+                      /* ── Approval Card ─────────────────────────────── */
+                      <div>
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className="text-base">📧</span>
+                          <span className="font-semibold text-[#1f1e1c] text-sm">
+                            Ready to send this email
+                          </span>
+                        </div>
+
+                        <div className="rounded-xl bg-[#faf8f5] border border-[#e8e4de] p-3.5 space-y-2 text-xs mb-3">
+                          <div className="flex gap-2">
+                            <span className="font-semibold text-[#716e69] w-14 shrink-0">
+                              To:
+                            </span>
+                            <span className="text-[#1f1e1c] font-medium">
+                              {msg.pending_action.to}
+                            </span>
+                          </div>
+                          <div className="flex gap-2">
+                            <span className="font-semibold text-[#716e69] w-14 shrink-0">
+                              Subject:
+                            </span>
+                            <span className="text-[#1f1e1c] font-medium">
+                              {msg.pending_action.subject}
+                            </span>
+                          </div>
+                          <div className="pt-2 border-t border-[#ede9e2]">
+                            <span className="font-semibold text-[#716e69] block mb-1.5">
+                              Body:
+                            </span>
+                            <pre className="whitespace-pre-wrap font-sans text-[#3b3834] leading-relaxed max-h-40 overflow-y-auto">
+                              {msg.pending_action.body}
+                            </pre>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() =>
+                              handleResume(msg.id, msg.thread_id!, "approve")
+                            }
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold transition-colors cursor-pointer"
+                          >
+                            ✅ Send Now
+                          </button>
+                          <button
+                            onClick={() =>
+                              handleResume(msg.id, msg.thread_id!, "cancel")
+                            }
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2 px-4 rounded-xl bg-white border border-[#dedad3] hover:bg-red-50 hover:border-red-200 hover:text-red-600 text-[#5e5b56] text-xs font-semibold transition-colors cursor-pointer"
+                          >
+                            ❌ Cancel
+                          </button>
+                        </div>
+                      </div>
                     ) : (
                       <MarkdownMessage text={msg.text} />
                     )}

@@ -1,3 +1,3 @@
-from src.agents.email_agent import run_email_agent
+from src.agents.email_agent import start_agent_run, resume_agent_run
 
-__all__ = ["run_email_agent"]
+__all__ = ["start_agent_run", "resume_agent_run"]
