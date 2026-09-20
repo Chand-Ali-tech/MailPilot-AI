@@ -1,11 +1,12 @@
 from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.concurrency import iterate_in_threadpool
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from src.models.google_connection import GoogleConnection
 from src.models.user import User
-from src.agents.email_agent import start_agent_run, resume_agent_run
+from src.agents.email_agent import stream_agent_run, stream_resume_agent_run
 
 
 # ---------------------------------------------------------------------------
@@ -21,12 +22,12 @@ class ResumeRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Shared helper: authenticate + fetch user tokens from DB
 # ---------------------------------------------------------------------------
 async def _get_user_context(request: Request, session: Session):
     """
-    Returns (user_name, connection) for the current session user,
-    or a JSONResponse error if something is wrong.
+    Validates the session and returns (user_name, connection).
+    Returns a JSONResponse error as the third value if anything is wrong.
     """
     user_id = request.session.get("user_id")
     if not user_id:
@@ -65,36 +66,53 @@ async def _get_user_context(request: Request, session: Session):
 
 
 # ---------------------------------------------------------------------------
-# POST /agent/chat — start a new agent run
+# SSE streaming helpers
+# ---------------------------------------------------------------------------
+def _make_stream_response(sync_generator) -> StreamingResponse:
+    """
+    Wraps a synchronous generator (our LangGraph stream) into a proper
+    async StreamingResponse for FastAPI.
+
+    iterate_in_threadpool() runs each `next()` call in a threadpool so the
+    sync LangGraph code doesn't block FastAPI's async event loop.
+    """
+    return StreamingResponse(
+        iterate_in_threadpool(sync_generator),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # disables nginx response buffering
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /agent/chat — start a new streaming agent run
 # ---------------------------------------------------------------------------
 async def agent_chat(
     request: Request, body: ChatRequest, session: Session
-) -> JSONResponse:
-    print(f"[CONTROLLER] 📨 Chat request: {body.message!r}")
+) -> StreamingResponse:
+    print(f"[CONTROLLER] 📨 Chat: {body.message!r}")
 
     user_name, connection, err = await _get_user_context(request, session)
     if err:
         return err
 
-    try:
-        result = start_agent_run(
-            user_message=body.message,
-            refresh_token=connection.refresh_token,
-            access_token=connection.access_token,
-            user_name=user_name,
-        )
-        return JSONResponse(result)
+    def generate():
+        try:
+            yield from stream_agent_run(
+                user_message=body.message,
+                refresh_token=connection.refresh_token,
+                access_token=connection.access_token,
+                user_name=user_name,
+            )
+        except Exception as e:
+            import json, traceback
 
-    except ValueError as e:
-        print(f"[CONTROLLER] ❌ ValueError: {e}")
-        return JSONResponse({"error": str(e)}, status_code=500)
+            traceback.print_exc()
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
-    except Exception as e:
-        import traceback
-
-        print(f"[CONTROLLER] ❌ {type(e).__name__}: {e}")
-        traceback.print_exc()
-        return JSONResponse({"error": f"{type(e).__name__}: {str(e)}"}, status_code=500)
+    return _make_stream_response(generate())
 
 
 # ---------------------------------------------------------------------------
@@ -102,10 +120,8 @@ async def agent_chat(
 # ---------------------------------------------------------------------------
 async def agent_resume(
     request: Request, body: ResumeRequest, session: Session
-) -> JSONResponse:
-    print(
-        f"[CONTROLLER] ▶  Resume request: thread_id={body.thread_id} action={body.action}"
-    )
+) -> StreamingResponse:
+    print(f"[CONTROLLER] ▶ Resume: thread_id={body.thread_id} action={body.action}")
 
     user_name, connection, err = await _get_user_context(request, session)
     if err:
@@ -113,23 +129,19 @@ async def agent_resume(
 
     approved = body.action == "approve"
 
-    try:
-        result = resume_agent_run(
-            thread_id=body.thread_id,
-            approved=approved,
-            refresh_token=connection.refresh_token,
-            access_token=connection.access_token,
-            user_name=user_name,
-        )
-        return JSONResponse(result)
+    def generate():
+        try:
+            yield from stream_resume_agent_run(
+                thread_id=body.thread_id,
+                approved=approved,
+                refresh_token=connection.refresh_token,
+                access_token=connection.access_token,
+                user_name=user_name,
+            )
+        except Exception as e:
+            import json, traceback
 
-    except ValueError as e:
-        print(f"[CONTROLLER] ❌ ValueError: {e}")
-        return JSONResponse({"error": str(e)}, status_code=500)
+            traceback.print_exc()
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
-    except Exception as e:
-        import traceback
-
-        print(f"[CONTROLLER] ❌ {type(e).__name__}: {e}")
-        traceback.print_exc()
-        return JSONResponse({"error": f"{type(e).__name__}: {str(e)}"}, status_code=500)
+    return _make_stream_response(generate())

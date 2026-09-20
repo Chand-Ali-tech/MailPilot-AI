@@ -1,7 +1,7 @@
 import os
+import json
 import sqlite3
 import uuid
-import traceback
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
@@ -48,7 +48,6 @@ Rules:
 - Always number emails sequentially: 1, 2, 3 ... never reset back to 1
 - Never use bullet points (- or *) for email fields, always use **bold labels** like above
 - For search, use Gmail search syntax (e.g. is:unread, from:someone@email.com, subject:keyword)
-- When listing emails, format them clearly with sender, subject, date, and a short summary
 - When sending emails, always sign off with:
   Best Regards,
   {user_name}
@@ -116,92 +115,103 @@ def _extract_tools_used(graph, config: dict) -> list[str]:
     return tools_used
 
 
-def _extract_reply(graph, config: dict) -> str:
+def _sse(data: dict) -> str:
+    """Formats a Python dict as a Server-Sent Events data line."""
+    return f"data: {json.dumps(data)}\n\n"
+
+
+def _stream_loop(graph, initial_input, config: dict, thread_id: str):
     """
-    Gets the final AI message from the graph state and returns it as a
-    plain string. Handles the case where Gemini returns content as a list
-    of blocks instead of a single string.
-    """
-    state = graph.get_state(config)
-    content = state.values["messages"][-1].content
+    Streaming version of the agent run loop.
 
-    if isinstance(content, list):
-        return " ".join(
-            block.get("text", "") if isinstance(block, dict) else str(block)
-            for block in content
-        )
+    Uses graph.stream() with stream_mode="messages" to get tokens
+    from the LLM as they are generated, instead of waiting for the
+    full response.
 
-    return str(content)
-
-
-def _run_loop(graph, initial_input, config: dict, thread_id: str) -> dict:
-    """
-    Runs the graph step by step, handling interrupts intelligently:
-
-    - If the graph pauses before a safe tool (search_emails): auto-resume.
-      No human input needed — searching is read-only.
-
-    - If the graph pauses before send_email: stop and return a
-      "pending_approval" response so the user can review and approve.
-
-    - If the graph finishes with no interrupts: return the final reply.
+    Yields SSE-formatted strings:
+      - {"type": "token",            "content": "..."}        — one LLM token
+      - {"type": "done",             "tools_used": [...]}      — run complete
+      - {"type": "pending_approval", "thread_id": "...", ...}  — needs human OK
+      - {"type": "error",            "message": "..."}         — something went wrong
     """
     current_input = initial_input
 
     while True:
-        graph.invoke(current_input, config)
+        # Stream this iteration of the graph.
+        # stream_mode="messages" gives us (chunk, metadata) pairs where chunk
+        # is an AIMessageChunk with partial content from the LLM.
+        for chunk, metadata in graph.stream(
+            current_input, config, stream_mode="messages"
+        ):
+            # Only forward tokens coming from the agent node (the LLM).
+            # We skip tool result messages — those are not user-facing text.
+            if metadata.get("langgraph_node") != "agent":
+                continue
+
+            content = getattr(chunk, "content", None)
+            if not content:
+                continue
+
+            # Gemini sometimes sends content as a list of blocks rather than a string
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        text = block.get("text", "")
+                        if text:
+                            yield _sse({"type": "token", "content": text})
+            elif isinstance(content, str):
+                yield _sse({"type": "token", "content": content})
+
+        # After each iteration, check if the graph paused before a tool
         pending_calls = _get_pending_tool_calls(graph, config)
 
-        # Graph has finished — no more tool calls pending
         if not pending_calls:
+            # No interrupt — graph has finished
             break
 
         wants_to_send = any(tc["name"] == "send_email" for tc in pending_calls)
 
         if wants_to_send:
-            # The LLM wants to send an email — pause and ask the user first
+            # The LLM wants to send an email — pause and ask the user first.
+            # Send a special SSE event so the frontend shows the approval card.
             send_call = next(tc for tc in pending_calls if tc["name"] == "send_email")
-            return {
-                "status": "pending_approval",
-                "thread_id": thread_id,
-                "pending_action": {
-                    "tool": "send_email",
-                    "to": send_call["args"].get("to", ""),
-                    "subject": send_call["args"].get("subject", ""),
-                    "body": send_call["args"].get("body", ""),
-                },
-            }
-        else:
-            # Safe tool (e.g. search_emails) — resume automatically
-            current_input = (
-                None  # passing None tells LangGraph to resume from checkpoint
+            yield _sse(
+                {
+                    "type": "pending_approval",
+                    "thread_id": thread_id,
+                    "pending_action": {
+                        "tool": "send_email",
+                        "to": send_call["args"].get("to", ""),
+                        "subject": send_call["args"].get("subject", ""),
+                        "body": send_call["args"].get("body", ""),
+                    },
+                }
             )
+            return
+        else:
+            # Safe tool (e.g. search_emails) — auto-resume without asking the user.
+            # Passing None as input tells LangGraph to continue from the checkpoint.
+            current_input = None
             continue
 
-    reply = _extract_reply(graph, config)
     tools_used = _extract_tools_used(graph, config)
-    return {"status": "complete", "reply": reply, "tools_used": tools_used}
+    yield _sse({"type": "done", "tools_used": tools_used})
 
 
-def start_agent_run(
+def stream_agent_run(
     user_message: str,
     refresh_token: str,
     access_token: str | None,
     user_name: str = "the user",
-) -> dict:
+):
     """
-    Starts a brand new agent conversation for the given user message.
+    Starts a new agent run and streams the response token by token.
 
-    Returns one of two shapes:
-      - {"status": "complete", "reply": "...", "tools_used": [...]}
-      - {"status": "pending_approval", "thread_id": "...", "pending_action": {...}}
-
-    The thread_id in the second case must be sent back to resume_agent_run()
-    once the user approves or cancels.
+    This is a generator — iterate it to get SSE strings to forward to the client.
+    The frontend reads these and builds the message in real time.
     """
     thread_id = str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
-
     graph = _build_graph(refresh_token, access_token)
 
     initial_input = {
@@ -211,33 +221,27 @@ def start_agent_run(
         ]
     }
 
-    return _run_loop(graph, initial_input, config, thread_id)
+    yield from _stream_loop(graph, initial_input, config, thread_id)
 
 
-def resume_agent_run(
+def stream_resume_agent_run(
     thread_id: str,
     approved: bool,
     refresh_token: str,
     access_token: str | None,
     user_name: str = "the user",
-) -> dict:
+):
     """
-    Resumes a graph that was paused waiting for human approval.
+    Resumes a paused graph and streams the response token by token.
 
-    approved=True:
-        Resume normally. The tools node runs and the email is sent.
-
-    approved=False:
-        We inject fake ToolMessages saying the action was cancelled.
-        The graph then resumes, the LLM reads those results, and replies
-        with a graceful "okay, I've cancelled it" message — instead of crashing
-        because no ToolMessage was provided for the pending tool calls.
+    approved=True  → resume normally, send_email tool executes, email is sent
+    approved=False → inject cancellation ToolMessages so the LLM responds
+                     gracefully ("okay, I've cancelled it") instead of erroring
     """
     config = {"configurable": {"thread_id": thread_id}}
     graph = _build_graph(refresh_token, access_token)
 
     if not approved:
-        # Get the last AI message which contains the pending tool calls
         state = graph.get_state(config)
         last_msg = state.values["messages"][-1]
         pending_calls = getattr(last_msg, "tool_calls", []) or []
@@ -255,8 +259,7 @@ def resume_agent_run(
 
         # Push these into the graph state as if the tools node produced them.
         # as_node="tools" is required — it tells LangGraph which node these
-        # messages are "coming from" so the execution order stays correct.
+        # messages are "coming from" so execution order stays correct.
         graph.update_state(config, {"messages": cancel_messages}, as_node="tools")
 
-    # Resume execution from the checkpoint (None = no new user input)
-    return _run_loop(graph, None, config, thread_id)
+    yield from _stream_loop(graph, None, config, thread_id)

@@ -50,7 +50,7 @@ interface ChatMessage {
   type?: "text" | "emails_list";
   emails?: EmailItem[];
   tools_used?: string[];
-  status?: "complete" | "pending_approval";
+  status?: "streaming" | "complete" | "pending_approval";
   thread_id?: string;
   pending_action?: {
     tool: string;
@@ -367,6 +367,85 @@ export default function Home() {
     }
   };
 
+  // Reads an SSE stream from the backend and updates the message in real time.
+  // url: the fetch URL | body: the POST body | streamMsgId: which message to stream into
+  const readStream = async (url: string, body: object, streamMsgId: string) => {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok || !res.body) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      // Accumulate chunks — a single read() may contain partial SSE lines
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop()!; // keep the last incomplete line for next iteration
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const event = JSON.parse(line.slice(6));
+
+        if (event.type === "token") {
+          // Append this token to the streaming message
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === streamMsgId ? { ...m, text: m.text + event.content } : m,
+            ),
+          );
+        } else if (event.type === "done") {
+          // Stream finished — mark complete and attach tool badges
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === streamMsgId
+                ? {
+                    ...m,
+                    status: "complete",
+                    tools_used: event.tools_used || [],
+                  }
+                : m,
+            ),
+          );
+        } else if (event.type === "pending_approval") {
+          // Agent paused for send_email — show the approval card
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === streamMsgId
+                ? {
+                    ...m,
+                    text: "",
+                    status: "pending_approval",
+                    thread_id: event.thread_id,
+                    pending_action: event.pending_action,
+                  }
+                : m,
+            ),
+          );
+        } else if (event.type === "error") {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === streamMsgId
+                ? { ...m, text: `⚠️ ${event.message}`, status: "complete" }
+                : m,
+            ),
+          );
+        }
+      }
+    }
+  };
+
   const handleSendMessage = async (textToSend?: string) => {
     const query = (textToSend || inputPrompt).trim();
     if (!query) return;
@@ -381,66 +460,42 @@ export default function Home() {
       }),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    // Create a placeholder message that tokens will stream into
+    const streamId = (Date.now() + 1).toString();
+    const streamMsg: ChatMessage = {
+      id: streamId,
+      sender: "assistant",
+      text: "",
+      status: "streaming",
+      timestamp: new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    };
+
+    setMessages((prev) => [...prev, userMessage, streamMsg]);
     setInputPrompt("");
     setIsTyping(true);
 
     try {
-      const res = await fetch(`${backendUrl}/agent/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ message: query }),
-      });
-      const data = await res.json();
-      const timestamp = new Date().toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-
-      if (data.status === "pending_approval") {
-        // Agent paused — show approval card
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: (Date.now() + 1).toString(),
-            sender: "assistant",
-            text: "",
-            timestamp,
-            status: "pending_approval",
-            thread_id: data.thread_id,
-            pending_action: data.pending_action,
-          },
-        ]);
-      } else {
-        // Agent completed
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: (Date.now() + 1).toString(),
-            sender: "assistant",
-            text:
-              data.reply || data.error || "I couldn't process that request.",
-            timestamp,
-            status: "complete",
-            tools_used: data.tools_used || [],
-          },
-        ]);
-      }
+      await readStream(
+        `${backendUrl}/agent/chat`,
+        { message: query },
+        streamId,
+      );
     } catch (err) {
-      console.error("Agent error:", err);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: (Date.now() + 1).toString(),
-          sender: "assistant",
-          text: "⚠️ Failed to reach the agent. Please make sure the backend is running.",
-          timestamp: new Date().toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-        },
-      ]);
+      console.error("Stream error:", err);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === streamId
+            ? {
+                ...m,
+                text: "⚠️ Failed to reach the agent. Please make sure the backend is running.",
+                status: "complete",
+              }
+            : m,
+        ),
+      );
     } finally {
       setIsTyping(false);
     }
@@ -451,61 +506,53 @@ export default function Home() {
     thread_id: string,
     action: "approve" | "cancel",
   ) => {
-    // Replace the approval card message with a "processing" state
-    setMessages((prev) =>
-      prev.map((m) =>
+    // Replace approval card with a "processing" placeholder, then stream the result
+    const streamId = (Date.now() + 1).toString();
+    const label = action === "approve" ? "Sending email..." : "Cancelling...";
+
+    setMessages((prev) => [
+      ...prev.map((m) =>
         m.id === msgId
           ? {
               ...m,
               status: "complete" as const,
-              text:
-                action === "approve"
-                  ? "✅ Approved — sending email..."
-                  : "❌ Cancelled.",
+              text: `✅ ${label}`,
+              pending_action: undefined,
             }
           : m,
       ),
-    );
+      {
+        id: streamId,
+        sender: "assistant" as const,
+        text: "",
+        status: "streaming" as const,
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      },
+    ]);
     setIsTyping(true);
 
     try {
-      const res = await fetch(`${backendUrl}/agent/resume`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ thread_id, action }),
-      });
-      const data = await res.json();
-      const timestamp = new Date().toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: (Date.now() + 1).toString(),
-          sender: "assistant",
-          text: data.reply || data.error || "Done.",
-          timestamp,
-          status: "complete",
-          tools_used: data.tools_used || [],
-        },
-      ]);
+      await readStream(
+        `${backendUrl}/agent/resume`,
+        { thread_id, action },
+        streamId,
+      );
     } catch (err) {
-      console.error("Resume error:", err);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: (Date.now() + 1).toString(),
-          sender: "assistant",
-          text: "⚠️ Failed to resume. Please try again.",
-          timestamp: new Date().toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-        },
-      ]);
+      console.error("Resume stream error:", err);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === streamId
+            ? {
+                ...m,
+                text: "⚠️ Failed to resume. Please try again.",
+                status: "complete",
+              }
+            : m,
+        ),
+      );
     } finally {
       setIsTyping(false);
     }
@@ -828,6 +875,23 @@ export default function Home() {
                           </button>
                         </div>
                       </div>
+                    ) : msg.status === "streaming" && !msg.text ? (
+                      /* Empty streaming placeholder — show Thinking dots */
+                      <span className="flex items-center gap-1.5 text-[#a09c96] text-xs">
+                        Thinking
+                        <span
+                          className="h-1.5 w-1.5 rounded-full bg-[#d94f3d] animate-bounce"
+                          style={{ animationDelay: "0ms" }}
+                        />
+                        <span
+                          className="h-1.5 w-1.5 rounded-full bg-[#d94f3d] animate-bounce"
+                          style={{ animationDelay: "150ms" }}
+                        />
+                        <span
+                          className="h-1.5 w-1.5 rounded-full bg-[#d94f3d] animate-bounce"
+                          style={{ animationDelay: "300ms" }}
+                        />
+                      </span>
                     ) : (
                       <MarkdownMessage text={msg.text} />
                     )}
@@ -922,7 +986,7 @@ export default function Home() {
               ))}
 
               {/* Typing indicator */}
-              {isTyping && (
+              {isTyping && !messages.some((m) => m.status === "streaming") && (
                 <div className="flex gap-3 justify-start">
                   <div className="h-8 w-8 rounded-xl bg-gradient-to-tr from-[#d94f3d] to-[#e97745] flex items-center justify-center text-white text-xs font-bold shrink-0 mt-1 shadow-sm">
                     AI
