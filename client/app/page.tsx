@@ -285,6 +285,17 @@ export default function Home() {
     setShowConvPanel(false);
   };
 
+  // Delete a past conversation
+  const deleteConversation = (e: React.MouseEvent, convId: string) => {
+    e.stopPropagation();
+    const all = loadConversations().filter((c) => c.id !== convId);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+    setConversations(all);
+    if (currentConvId === convId) {
+      startNewConversation();
+    }
+  };
+
   // Email Detail Modal State
   const [selectedEmail, setSelectedEmail] = useState<EmailDetail | null>(null);
   const [loadingEmailDetail, setLoadingEmailDetail] = useState(false);
@@ -293,6 +304,15 @@ export default function Home() {
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
   const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+  // Load saved conversations on initial mount
+  useEffect(() => {
+    const saved = loadConversations();
+    setConversations(saved);
+    if (!currentConvId) {
+      setCurrentConvId(`conv_${Date.now()}`);
+    }
+  }, []);
 
   useEffect(() => {
     // Check auth status
@@ -437,7 +457,12 @@ export default function Home() {
 
   // Reads an SSE stream from the backend and updates the message in real time.
   // url: the fetch URL | body: the POST body | streamMsgId: which message to stream into
-  const readStream = async (url: string, body: object, streamMsgId: string) => {
+  const readStream = async (
+    url: string,
+    body: object,
+    streamMsgId: string,
+    convId?: string,
+  ) => {
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -474,41 +499,57 @@ export default function Home() {
             ),
           );
         } else if (event.type === "done") {
-          // Stream finished — mark complete and attach tool badges
-          setMessages((prev) =>
-            prev.map((m) =>
+          // Stream finished — mark complete, attach tool badges, and save conversation
+          setMessages((prev) => {
+            const updated = prev.map((m) =>
               m.id === streamMsgId
                 ? {
                     ...m,
-                    status: "complete",
+                    status: "complete" as const,
                     tools_used: event.tools_used || [],
                   }
                 : m,
-            ),
-          );
+            );
+            if (convId) {
+              saveConversation(convId, updated);
+            }
+            return updated;
+          });
         } else if (event.type === "pending_approval") {
           // Agent paused for send_email — show the approval card
-          setMessages((prev) =>
-            prev.map((m) =>
+          setMessages((prev) => {
+            const updated = prev.map((m) =>
               m.id === streamMsgId
                 ? {
                     ...m,
                     text: "",
-                    status: "pending_approval",
+                    status: "pending_approval" as const,
                     thread_id: event.thread_id,
                     pending_action: event.pending_action,
                   }
                 : m,
-            ),
-          );
+            );
+            if (convId) {
+              saveConversation(convId, updated);
+            }
+            return updated;
+          });
         } else if (event.type === "error") {
-          setMessages((prev) =>
-            prev.map((m) =>
+          setMessages((prev) => {
+            const updated = prev.map((m) =>
               m.id === streamMsgId
-                ? { ...m, text: `⚠️ ${event.message}`, status: "complete" }
+                ? {
+                    ...m,
+                    text: `⚠️ ${event.message}`,
+                    status: "complete" as const,
+                  }
                 : m,
-            ),
-          );
+            );
+            if (convId) {
+              saveConversation(convId, updated);
+            }
+            return updated;
+          });
         }
       }
     }
@@ -517,6 +558,18 @@ export default function Home() {
   const handleSendMessage = async (textToSend?: string) => {
     const query = (textToSend || inputPrompt).trim();
     if (!query) return;
+
+    // Collect last N messages as conversation history (filtering out empty/pending items)
+    const history = messages
+      .filter(
+        (m) =>
+          m.text && m.text.trim().length > 0 && m.status !== "pending_approval",
+      )
+      .slice(-HISTORY_LIMIT)
+      .map((m) => ({
+        role: m.sender,
+        content: m.text,
+      }));
 
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
@@ -541,6 +594,11 @@ export default function Home() {
       }),
     };
 
+    const convId = currentConvId || `conv_${Date.now()}`;
+    if (!currentConvId) {
+      setCurrentConvId(convId);
+    }
+
     setMessages((prev) => [...prev, userMessage, streamMsg]);
     setInputPrompt("");
     setIsTyping(true);
@@ -548,8 +606,9 @@ export default function Home() {
     try {
       await readStream(
         `${backendUrl}/agent/chat`,
-        { message: query },
+        { message: query, history },
         streamId,
+        convId,
       );
     } catch (err) {
       console.error("Stream error:", err);
@@ -577,6 +636,7 @@ export default function Home() {
     // Replace approval card with a "processing" placeholder, then stream the result
     const streamId = (Date.now() + 1).toString();
     const label = action === "approve" ? "Sending email..." : "Cancelling...";
+    const convId = currentConvId || `conv_${Date.now()}`;
 
     setMessages((prev) => [
       ...prev.map((m) =>
@@ -607,6 +667,7 @@ export default function Home() {
         `${backendUrl}/agent/resume`,
         { thread_id, action },
         streamId,
+        convId,
       );
     } catch (err) {
       console.error("Resume stream error:", err);
@@ -679,7 +740,7 @@ export default function Home() {
         >
           <div className="flex flex-col h-full p-4 overflow-y-auto">
             {/* App Brand */}
-            <div className="flex items-center gap-3 px-2 py-2 mb-4">
+            <div className="flex items-center gap-3 px-2 py-2 mb-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#d94f3d] to-[#e97745] text-white font-bold text-base shadow-sm">
                 M
               </div>
@@ -693,7 +754,62 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Quick Actions / Suggested Prompts */}
+            {/* New Chat Button */}
+            <div className="mb-4">
+              <button
+                onClick={startNewConversation}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-[#242321] hover:bg-[#3b3834] text-white text-xs font-semibold shadow-sm transition-all cursor-pointer group"
+              >
+                <span className="text-base font-bold leading-none group-hover:scale-110 transition-transform">
+                  +
+                </span>
+                <span>Start New Chat</span>
+              </button>
+            </div>
+
+            {/* Past Conversations List */}
+            <div className="mb-5 flex flex-col">
+              <div className="flex items-center justify-between px-2 mb-2">
+                <span className="text-xs font-semibold text-[#8c8881] uppercase tracking-wider">
+                  Past Conversations ({conversations.length})
+                </span>
+              </div>
+              <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
+                {conversations.length === 0 ? (
+                  <div className="p-3 text-center rounded-xl bg-[#faf8f5] border border-dashed border-[#ebe7e1]">
+                    <p className="text-[11px] text-[#a09c96]">
+                      No past conversations yet
+                    </p>
+                  </div>
+                ) : (
+                  conversations.map((conv) => (
+                    <div
+                      key={conv.id}
+                      onClick={() => restoreConversation(conv)}
+                      className={`group flex items-center justify-between p-2.5 rounded-xl text-xs cursor-pointer transition-all ${
+                        conv.id === currentConvId
+                          ? "bg-[#fff5f2] text-[#d94f3d] font-semibold border border-[#f7d5ce]"
+                          : "hover:bg-[#f7f5f2] text-[#3b3834] border border-transparent"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span className="text-xs shrink-0">💬</span>
+                        <span className="truncate">{conv.title}</span>
+                      </div>
+                      <button
+                        onClick={(e) => deleteConversation(e, conv.id)}
+                        className="opacity-0 group-hover:opacity-100 p-1 text-[#a09c96] hover:text-red-600 transition-opacity rounded cursor-pointer ml-1 shrink-0"
+                        title="Delete chat"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Quick Actions / Suggested Prompts
             <div className="mb-5">
               <span className="px-2 text-xs font-semibold text-[#8c8881] uppercase tracking-wider">
                 Quick Actions
@@ -720,7 +836,7 @@ export default function Home() {
                   </button>
                 ))}
               </div>
-            </div>
+            </div> */}
 
             {/* Live Latest Emails Mini-Feed */}
             {latestEmails.length > 0 && (
@@ -831,6 +947,69 @@ export default function Home() {
                 <span className="rounded-full bg-[#f2efe9] px-2 py-0.5 text-[11px] font-medium text-[#716e69]">
                   Live
                 </span>
+              </div>
+
+              {/* New Chat Button */}
+              <button
+                onClick={startNewConversation}
+                className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white border border-[#dedad3] hover:border-[#d94f3d] text-xs font-semibold text-[#242321] hover:text-[#d94f3d] transition-colors cursor-pointer"
+                title="Start a new chat thread"
+              >
+                <span className="text-sm font-bold leading-none">+</span>
+                <span>New Chat</span>
+              </button>
+
+              {/* Past Chats Dropdown */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowConvPanel(!showConvPanel)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white border border-[#dedad3] hover:border-[#d94f3d] text-xs font-semibold text-[#242321] hover:text-[#d94f3d] transition-colors cursor-pointer"
+                  title="View conversation history"
+                >
+                  <span>💬</span>
+                  <span>Chats ({conversations.length})</span>
+                </button>
+                {showConvPanel && (
+                  <div className="absolute left-0 mt-2 w-72 max-h-80 overflow-y-auto bg-white border border-[#e8e4de] rounded-2xl shadow-xl z-50 p-2 space-y-1">
+                    <div className="text-[11px] font-bold text-[#a09c96] px-2 py-1 uppercase tracking-wider flex justify-between items-center">
+                      <span>Saved Chats</span>
+                      <button
+                        onClick={() => setShowConvPanel(false)}
+                        className="text-gray-400 hover:text-gray-600 cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    {conversations.length === 0 ? (
+                      <p className="text-xs text-gray-400 p-2 text-center">
+                        No past chats yet
+                      </p>
+                    ) : (
+                      conversations.map((c) => (
+                        <div
+                          key={c.id}
+                          onClick={() => restoreConversation(c)}
+                          className={`flex items-center justify-between p-2 rounded-xl text-xs cursor-pointer transition-colors ${
+                            c.id === currentConvId
+                              ? "bg-[#fff7f5] text-[#d94f3d] font-semibold"
+                              : "hover:bg-[#faf8f5] text-[#242321]"
+                          }`}
+                        >
+                          <span className="truncate max-w-[180px]">
+                            {c.title}
+                          </span>
+                          <button
+                            onClick={(e) => deleteConversation(e, c.id)}
+                            className="text-gray-300 hover:text-red-500 p-1 rounded transition-colors"
+                            title="Delete chat"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
