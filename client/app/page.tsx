@@ -63,7 +63,7 @@ interface ChatMessage {
 }
 
 // ---------------------------------------------------------------------------
-// Lightweight markdown renderer — no external library needed
+// Lightweight markdown renderer — responsive & clean
 // Handles: **bold**, *italic*, # headings, - bullets, 1. numbered, `code`, ---
 // ---------------------------------------------------------------------------
 function MarkdownMessage({ text }: { text: string }) {
@@ -87,7 +87,7 @@ function MarkdownMessage({ text }: { text: string }) {
         return (
           <code
             key={idx}
-            className="bg-[#f2efe9] text-[#c44332] rounded px-1 py-0.5 text-[11px] font-mono"
+            className="bg-[#f2efe9] text-[#c44332] rounded px-1 py-0.5 text-[11px] font-mono break-all"
           >
             {part.slice(1, -1)}
           </code>
@@ -102,19 +102,28 @@ function MarkdownMessage({ text }: { text: string }) {
     // Headings
     if (line.startsWith("### ")) {
       elements.push(
-        <h4 key={i} className="font-bold text-[#1f1e1c] text-sm mt-3 mb-1">
+        <h4
+          key={i}
+          className="font-bold text-[#1f1e1c] text-xs sm:text-sm mt-3 mb-1 break-words"
+        >
           {line.slice(4)}
         </h4>,
       );
     } else if (line.startsWith("## ")) {
       elements.push(
-        <h3 key={i} className="font-bold text-[#1f1e1c] text-base mt-3 mb-1">
+        <h3
+          key={i}
+          className="font-bold text-[#1f1e1c] text-sm sm:text-base mt-3 mb-1 break-words"
+        >
           {line.slice(3)}
         </h3>,
       );
     } else if (line.startsWith("# ")) {
       elements.push(
-        <h2 key={i} className="font-bold text-[#1f1e1c] text-lg mt-3 mb-1">
+        <h2
+          key={i}
+          className="font-bold text-[#1f1e1c] text-base sm:text-lg mt-3 mb-1 break-words"
+        >
           {line.slice(2)}
         </h2>,
       );
@@ -125,17 +134,20 @@ function MarkdownMessage({ text }: { text: string }) {
         elements.push(<div key={i} className="h-1" />);
       } else {
         elements.push(
-          <p key={i} className="leading-relaxed">
+          <div
+            key={i}
+            className="border-l-2 border-[#d94f3d]/60 pl-3 py-0.5 my-1.5 text-xs sm:text-sm italic text-[#5c5852] leading-relaxed break-words"
+          >
             {renderInline(line.slice(2))}
-          </p>,
+          </div>,
         );
       }
     }
     // Horizontal rule
     else if (line.match(/^---+$/)) {
-      elements.push(<hr key={i} className="my-3 border-[#e8e4de]" />);
+      elements.push(<hr key={i} className="my-2.5 sm:my-3 border-[#e8e4de]" />);
     }
-    // Bullet list  (-, •, or * prefix)
+    // Bullet list (-, •, or * prefix)
     else if (
       line.startsWith("- ") ||
       line.startsWith("• ") ||
@@ -152,15 +164,15 @@ function MarkdownMessage({ text }: { text: string }) {
           ? lines[i].slice(2)
           : lines[i].slice(2);
         listItems.push(
-          <li key={i} className="flex gap-2 items-start">
+          <li key={i} className="flex gap-2 items-start break-words">
             <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-[#d94f3d] shrink-0" />
-            <span>{renderInline(content)}</span>
+            <span className="flex-1">{renderInline(content)}</span>
           </li>,
         );
         i++;
       }
       elements.push(
-        <ul key={`ul-${i}`} className="my-2 space-y-1.5 ml-1">
+        <ul key={`ul-${i}`} className="my-2 space-y-1.5 ml-0.5">
           {listItems}
         </ul>,
       );
@@ -173,18 +185,18 @@ function MarkdownMessage({ text }: { text: string }) {
       while (i < lines.length && /^\d+\.\s/.test(lines[i])) {
         const content = lines[i].replace(/^\d+\.\s/, "");
         listItems.push(
-          <li key={i} className="flex gap-2 items-start">
+          <li key={i} className="flex gap-2 items-start break-words">
             <span className="shrink-0 font-semibold text-[#d94f3d] text-xs mt-0.5 w-4">
               {n}.
             </span>
-            <span>{renderInline(content)}</span>
+            <span className="flex-1">{renderInline(content)}</span>
           </li>,
         );
         i++;
         n++;
       }
       elements.push(
-        <ol key={`ol-${i}`} className="my-2 space-y-1.5 ml-1">
+        <ol key={`ol-${i}`} className="my-2 space-y-1.5 ml-0.5">
           {listItems}
         </ol>,
       );
@@ -192,12 +204,12 @@ function MarkdownMessage({ text }: { text: string }) {
     }
     // Empty line → spacing
     else if (line.trim() === "") {
-      elements.push(<div key={i} className="h-2" />);
+      elements.push(<div key={i} className="h-1.5 sm:h-2" />);
     }
     // Normal paragraph line
     else {
       elements.push(
-        <p key={i} className="leading-relaxed">
+        <p key={i} className="leading-relaxed break-words">
           {renderInline(line)}
         </p>,
       );
@@ -206,7 +218,11 @@ function MarkdownMessage({ text }: { text: string }) {
     i++;
   }
 
-  return <div className="space-y-0.5 text-sm">{elements}</div>;
+  return (
+    <div className="space-y-0.5 text-xs sm:text-sm leading-relaxed overflow-hidden">
+      {elements}
+    </div>
+  );
 }
 
 // A full conversation stored in localStorage (for the conversations panel)
@@ -223,7 +239,7 @@ export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputPrompt, setInputPrompt] = useState("");
   const [isTyping, setIsTyping] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Conversation history (stored in localStorage)
   const [currentConvId, setCurrentConvId] = useState<string>("");
@@ -276,6 +292,9 @@ export default function Home() {
     setCurrentConvId(newId);
     setMessages([]);
     setShowConvPanel(false);
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setIsSidebarOpen(false);
+    }
   };
 
   // Restore a past conversation from localStorage
@@ -283,6 +302,9 @@ export default function Home() {
     setCurrentConvId(conv.id);
     setMessages(conv.messages);
     setShowConvPanel(false);
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setIsSidebarOpen(false);
+    }
   };
 
   // Delete a past conversation
@@ -305,6 +327,13 @@ export default function Home() {
 
   const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+  // Check screen size on mount to initialize sidebar state
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth >= 1024) {
+      setIsSidebarOpen(true);
+    }
+  }, []);
+
   // Load saved conversations on initial mount
   useEffect(() => {
     const saved = loadConversations();
@@ -323,17 +352,11 @@ export default function Home() {
       .then((data) => {
         if (data?.user) {
           setUser(data.user);
-          setMessages([
-            {
-              id: "welcome-1",
-              sender: "assistant",
-              text: `Hello ${data.user.name || "there"}! 👋 I'm your AI Email Agent. Your Gmail is connected. You can ask me to fetch your latest emails, view full details (HTML, body, images), or summarize threads.`,
-              timestamp: new Date().toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              }),
-            },
-          ]);
+          const saved = loadConversations();
+          setConversations(saved);
+          // By default, start with a fresh new chat session on entry
+          setCurrentConvId(`conv_${Date.now()}`);
+          setMessages([]);
         }
       })
       .catch((err) => {
@@ -387,7 +410,6 @@ export default function Home() {
   };
 
   // Reads an SSE stream from the backend and updates the message in real time.
-  // url: the fetch URL | body: the POST body | streamMsgId: which message to stream into
   const readStream = async (
     url: string,
     body: object,
@@ -447,7 +469,7 @@ export default function Home() {
             return updated;
           });
         } else if (event.type === "pending_approval") {
-          // Agent paused for send_email — show the approval card
+          // Agent paused for send_email / reply / delete — show approval card
           setMessages((prev) => {
             const updated = prev.map((m) =>
               m.id === streamMsgId
@@ -566,7 +588,8 @@ export default function Home() {
   ) => {
     // Replace approval card with a "processing" placeholder, then stream the result
     const streamId = (Date.now() + 1).toString();
-    const label = action === "approve" ? "Sending email..." : "Cancelling...";
+    const label =
+      action === "approve" ? "Processing action..." : "Cancelling...";
     const convId = currentConvId || `conv_${Date.now()}`;
 
     setMessages((prev) => [
@@ -618,36 +641,17 @@ export default function Home() {
     }
   };
 
-  const suggestedPrompts = [
-    {
-      title: "Show recent emails",
-      description: "Search and list your latest emails",
-      icon: "📬",
-      action: () => handleSendMessage("Show my latest 5 emails"),
-    },
-    {
-      title: "Summarize recent updates",
-      description: "Get key points from latest emails",
-      icon: "📊",
-      action: () => handleSendMessage("Summarize my recent updates"),
-    },
-    {
-      title: "Find urgent action items",
-      description: "Emails waiting on your reply",
-      icon: "⚡",
-      action: () => handleSendMessage("Find urgent action items"),
-    },
-  ];
-
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#fbf9f6] px-6 font-sans">
         <div className="flex flex-col items-center">
           <div className="relative flex h-16 w-16 items-center justify-center">
             <div className="absolute h-16 w-16 animate-ping rounded-full bg-[#d94f3d]/15" />
-            <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-black/5 text-[#d94f3d] font-bold text-xl">
-              ✉
-            </div>
+            <img
+              src="/favicon.svg"
+              alt="MailPilot AI"
+              className="relative h-12 w-12 rounded-2xl shadow-sm"
+            />
           </div>
           <p className="mt-5 text-sm font-medium text-[#716e69]">
             Connecting to workspace...
@@ -663,26 +667,66 @@ export default function Home() {
   if (user) {
     return (
       <div className="flex h-screen bg-[#f7f5f2] font-sans text-[#242321] overflow-hidden relative">
-        {/* Left Sidebar */}
+        {/* Mobile Backdrop Overlay */}
+        {isSidebarOpen && (
+          <div
+            onClick={() => setIsSidebarOpen(false)}
+            className="fixed inset-0 bg-black/40 backdrop-blur-xs z-40 lg:hidden animate-in fade-in duration-200"
+          />
+        )}
+
+        {/* Left Sidebar (Drawer on mobile/tablet, dockable on desktop) */}
         <aside
-          className={`${
-            isSidebarOpen ? "w-80" : "w-0 -translate-x-full"
-          } transition-all duration-300 ease-in-out border-r border-[#e8e4de] bg-white flex flex-col justify-between overflow-hidden shrink-0`}
+          className={`
+            fixed inset-y-0 left-0 z-50 lg:static lg:z-auto
+            w-72 sm:w-80 h-full
+            ${
+              isSidebarOpen
+                ? "translate-x-0 lg:w-72 xl:w-80"
+                : "-translate-x-full lg:w-0 lg:-translate-x-full"
+            }
+            transition-all duration-300 ease-in-out border-r border-[#e8e4de] bg-white flex flex-col justify-between overflow-hidden shrink-0 shadow-2xl lg:shadow-none
+          `}
         >
           <div className="flex flex-col h-full p-4 overflow-y-auto">
-            {/* App Brand */}
-            <div className="flex items-center gap-3 px-2 py-2 mb-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#d94f3d] to-[#e97745] text-white font-bold text-base shadow-sm">
-                M
+            {/* App Brand & Mobile Close Button */}
+            <div className="flex items-center justify-between gap-2 px-2 py-2 mb-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <img
+                  src="/favicon.svg"
+                  alt="MailPilot AI"
+                  className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl shadow-sm shrink-0"
+                />
+                <div className="truncate">
+                  <h2 className="text-sm font-semibold tracking-tight text-[#1f1e1c] truncate">
+                    MailPilot AI
+                  </h2>
+                  <span className="text-[11px] text-[#8c8881]">
+                    Workspace Co-pilot
+                  </span>
+                </div>
               </div>
-              <div>
-                <h2 className="text-sm font-semibold tracking-tight text-[#1f1e1c]">
-                  Email Agent AI
-                </h2>
-                <span className="text-[11px] text-[#8c8881]">
-                  Workspace Co-pilot
-                </span>
-              </div>
+
+              {/* Close Button on Mobile/Tablet */}
+              <button
+                onClick={() => setIsSidebarOpen(false)}
+                className="lg:hidden p-1.5 rounded-lg text-[#716e69] hover:bg-[#f2efe9] hover:text-[#1f1e1c] transition-colors cursor-pointer"
+                title="Close sidebar"
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
             </div>
 
             {/* New Chat Button */}
@@ -699,13 +743,13 @@ export default function Home() {
             </div>
 
             {/* Past Conversations List */}
-            <div className="mb-5 flex flex-col">
+            <div className="mb-5 flex flex-col flex-1 min-h-0">
               <div className="flex items-center justify-between px-2 mb-2">
                 <span className="text-xs font-semibold text-[#8c8881] uppercase tracking-wider">
                   Past Conversations ({conversations.length})
                 </span>
               </div>
-              <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
+              <div className="space-y-1 overflow-y-auto pr-1 flex-1">
                 {conversations.length === 0 ? (
                   <div className="p-3 text-center rounded-xl bg-[#faf8f5] border border-dashed border-[#ebe7e1]">
                     <p className="text-[11px] text-[#a09c96]">
@@ -729,7 +773,7 @@ export default function Home() {
                       </div>
                       <button
                         onClick={(e) => deleteConversation(e, conv.id)}
-                        className="opacity-0 group-hover:opacity-100 p-1 text-[#a09c96] hover:text-red-600 transition-opacity rounded cursor-pointer ml-1 shrink-0"
+                        className="opacity-60 lg:opacity-0 group-hover:opacity-100 p-1 text-[#a09c96] hover:text-red-600 transition-opacity rounded cursor-pointer ml-1 shrink-0"
                         title="Delete chat"
                       >
                         ✕
@@ -741,9 +785,9 @@ export default function Home() {
             </div>
 
             {/* Account Status Card */}
-            <div className="mt-auto pt-4 border-t border-[#e8e4de]">
-              <div className="rounded-xl bg-[#fcfbfa] p-3.5 border border-[#ebe7e1]">
-                <div className="flex items-center gap-2 mb-2">
+            <div className="mt-auto pt-3 border-t border-[#e8e4de] shrink-0">
+              <div className="rounded-xl bg-[#fcfbfa] p-3 border border-[#ebe7e1]">
+                <div className="flex items-center gap-2 mb-1.5">
                   <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
                   <span className="text-[11px] font-medium text-emerald-700">
                     Gmail Connected
@@ -752,7 +796,7 @@ export default function Home() {
                 <p className="text-xs font-semibold text-[#242321] truncate">
                   {user.name || "Authenticated User"}
                 </p>
-                <p className="text-[11px] text-[#716e69] truncate mb-3">
+                <p className="text-[11px] text-[#716e69] truncate mb-2.5">
                   {user.email}
                 </p>
                 <button
@@ -781,13 +825,14 @@ export default function Home() {
         </aside>
 
         {/* Main Content / Chat Workspace */}
-        <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#f7f5f2]">
-          {/* Top Bar */}
-          <header className="h-14 border-b border-[#e8e4de] bg-white/80 backdrop-blur-md px-5 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-3">
+        <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#f7f5f2] min-w-0">
+          {/* Top Bar Header */}
+          <header className="h-14 border-b border-[#e8e4de] bg-white/80 backdrop-blur-md px-3 sm:px-5 flex items-center justify-between shrink-0 gap-2">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              {/* Sidebar Toggle Button */}
               <button
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                className="p-1.5 rounded-lg text-[#716e69] hover:bg-[#f2efe9] hover:text-[#242321] transition-colors cursor-pointer"
+                className="p-2 rounded-xl text-[#716e69] hover:bg-[#f2efe9] hover:text-[#242321] transition-colors cursor-pointer shrink-0"
                 title="Toggle Sidebar"
               >
                 <svg
@@ -804,11 +849,18 @@ export default function Home() {
                   />
                 </svg>
               </button>
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-sm text-[#242321]">
-                  Email Assistant
+
+              {/* Brand Logo & Name */}
+              <div className="flex items-center gap-2 shrink-0">
+                <img
+                  src="/favicon.svg"
+                  alt="MailPilot AI"
+                  className="h-7 w-7 rounded-lg shadow-2xs shrink-0"
+                />
+                <span className="font-semibold text-xs sm:text-sm text-[#242321] hidden xs:inline truncate">
+                  MailPilot AI
                 </span>
-                <span className="rounded-full bg-[#f2efe9] px-2 py-0.5 text-[11px] font-medium text-[#716e69]">
+                <span className="hidden md:inline-block rounded-full bg-[#f2efe9] px-2 py-0.5 text-[10px] font-medium text-[#716e69]">
                   Live
                 </span>
               </div>
@@ -816,36 +868,39 @@ export default function Home() {
               {/* New Chat Button */}
               <button
                 onClick={startNewConversation}
-                className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white border border-[#dedad3] hover:border-[#d94f3d] text-xs font-semibold text-[#242321] hover:text-[#d94f3d] transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-xl bg-white border border-[#dedad3] hover:border-[#d94f3d] text-xs font-semibold text-[#242321] hover:text-[#d94f3d] transition-colors cursor-pointer shrink-0"
                 title="Start a new chat thread"
               >
                 <span className="text-sm font-bold leading-none">+</span>
-                <span>New Chat</span>
+                <span className="hidden sm:inline">New Chat</span>
               </button>
 
               {/* Past Chats Dropdown */}
-              <div className="relative">
+              <div className="relative shrink-0">
                 <button
                   onClick={() => setShowConvPanel(!showConvPanel)}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white border border-[#dedad3] hover:border-[#d94f3d] text-xs font-semibold text-[#242321] hover:text-[#d94f3d] transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl bg-white border border-[#dedad3] hover:border-[#d94f3d] text-xs font-semibold text-[#242321] hover:text-[#d94f3d] transition-colors cursor-pointer"
                   title="View conversation history"
                 >
                   <span>💬</span>
-                  <span>Chats ({conversations.length})</span>
+                  <span className="hidden sm:inline">Chats</span>
+                  <span className="text-[11px] font-bold text-[#716e69]">
+                    ({conversations.length})
+                  </span>
                 </button>
                 {showConvPanel && (
-                  <div className="absolute left-0 mt-2 w-72 max-h-80 overflow-y-auto bg-white border border-[#e8e4de] rounded-2xl shadow-xl z-50 p-2 space-y-1">
+                  <div className="fixed inset-x-3 top-16 sm:absolute sm:inset-x-auto sm:left-0 sm:top-full mt-1 w-auto sm:w-80 max-h-80 overflow-y-auto bg-white border border-[#e8e4de] rounded-2xl shadow-xl z-50 p-2 space-y-1 animate-in fade-in duration-150">
                     <div className="text-[11px] font-bold text-[#a09c96] px-2 py-1 uppercase tracking-wider flex justify-between items-center">
                       <span>Saved Chats</span>
                       <button
                         onClick={() => setShowConvPanel(false)}
-                        className="text-gray-400 hover:text-gray-600 cursor-pointer"
+                        className="p-1 text-gray-400 hover:text-gray-600 cursor-pointer"
                       >
                         ✕
                       </button>
                     </div>
                     {conversations.length === 0 ? (
-                      <p className="text-xs text-gray-400 p-2 text-center">
+                      <p className="text-xs text-gray-400 p-3 text-center">
                         No past chats yet
                       </p>
                     ) : (
@@ -859,7 +914,7 @@ export default function Home() {
                               : "hover:bg-[#faf8f5] text-[#242321]"
                           }`}
                         >
-                          <span className="truncate max-w-[180px]">
+                          <span className="truncate max-w-[200px]">
                             {c.title}
                           </span>
                           <button
@@ -877,12 +932,13 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 rounded-full bg-[#fbf9f6] border border-[#e8e4de] px-3 py-1 text-xs">
-                <div className="h-5 w-5 rounded-full bg-[#d94f3d] text-white flex items-center justify-center text-[10px] font-bold">
+            {/* User Profile Badge */}
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-1.5 sm:gap-2 rounded-full bg-[#fbf9f6] border border-[#e8e4de] px-2 sm:px-3 py-1 text-xs">
+                <div className="h-5 w-5 rounded-full bg-[#d94f3d] text-white flex items-center justify-center text-[10px] font-bold shrink-0">
                   {user.name ? user.name.charAt(0).toUpperCase() : "U"}
                 </div>
-                <span className="font-medium text-[#3b3834] max-w-[120px] sm:max-w-[200px] truncate">
+                <span className="font-medium text-[#3b3834] max-w-[80px] sm:max-w-[150px] md:max-w-[200px] truncate hidden xs:inline">
                   {user.name || user.email}
                 </span>
               </div>
@@ -890,56 +946,214 @@ export default function Home() {
           </header>
 
           {/* Chat Messages Scrollable Area */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
-            <div className="max-w-3xl mx-auto space-y-5">
+          <div className="flex-1 overflow-y-auto p-3 sm:p-5 md:p-6 space-y-4">
+            <div className="max-w-3xl mx-auto space-y-4 sm:space-y-5">
+              {/* Empty state welcome dashboard */}
+              {messages.length === 0 && (
+                <div className="flex flex-col items-center justify-center min-h-[50vh] text-center p-2 sm:p-4 md:p-6 max-w-2xl mx-auto animate-in fade-in duration-300">
+                  <div className="inline-flex items-center gap-2 rounded-full bg-white border border-[#e8e4de] px-3 py-1 text-[11px] sm:text-xs font-semibold text-[#5c5852] shadow-2xs mb-3 sm:mb-4">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span>Gemini 2.0 & LangGraph Co-Pilot Ready</span>
+                  </div>
+
+                  <h2 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-[#1f1e1c] tracking-tight">
+                    Hello, {user.name ? user.name.split(" ")[0] : "there"}!
+                  </h2>
+                  <p className="text-xs sm:text-sm text-[#716e69] mt-1.5 sm:mt-2 max-w-lg leading-relaxed">
+                    Ask me anything about your inbox in plain English or pick a
+                    quick workflow below:
+                  </p>
+
+                  {/* 6 Quick Functionality Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3.5 mt-5 sm:mt-6 w-full text-left">
+                    <button
+                      onClick={() =>
+                        handleSendMessage(
+                          "Show my latest 5 emails with their senders, subjects, and dates",
+                        )
+                      }
+                      className="p-3.5 sm:p-4 rounded-2xl bg-white border border-[#e8e4de] hover:border-[#d94f3d]/50 hover:bg-[#fff9f8] transition-all text-xs group cursor-pointer shadow-xs"
+                    >
+                      <div className="flex items-center gap-2.5 mb-1">
+                        <span className="h-7 w-7 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center text-sm font-semibold shrink-0">
+                          📬
+                        </span>
+                        <span className="font-semibold text-xs sm:text-sm text-[#1f1e1c] group-hover:text-[#d94f3d] transition-colors truncate">
+                          Scan Latest Emails
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#716e69] leading-relaxed">
+                        Fetch and inspect your most recent 5 inbox messages
+                      </p>
+                    </button>
+
+                    <button
+                      onClick={() =>
+                        handleSendMessage(
+                          "Summarize all my unread emails and highlight important notices",
+                        )
+                      }
+                      className="p-3.5 sm:p-4 rounded-2xl bg-white border border-[#e8e4de] hover:border-[#d94f3d]/50 hover:bg-[#fff9f8] transition-all text-xs group cursor-pointer shadow-xs"
+                    >
+                      <div className="flex items-center gap-2.5 mb-1">
+                        <span className="h-7 w-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center text-sm font-semibold shrink-0">
+                          📊
+                        </span>
+                        <span className="font-semibold text-xs sm:text-sm text-[#1f1e1c] group-hover:text-[#d94f3d] transition-colors truncate">
+                          Summarize Unread
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#716e69] leading-relaxed">
+                        Extract executive summaries from your unread inbox
+                      </p>
+                    </button>
+
+                    <button
+                      onClick={() =>
+                        handleSendMessage(
+                          "Scan my inbox and find urgent action items or requests waiting for my reply",
+                        )
+                      }
+                      className="p-3.5 sm:p-4 rounded-2xl bg-white border border-[#e8e4de] hover:border-[#d94f3d]/50 hover:bg-[#fff9f8] transition-all text-xs group cursor-pointer shadow-xs"
+                    >
+                      <div className="flex items-center gap-2.5 mb-1">
+                        <span className="h-7 w-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center text-sm font-semibold shrink-0">
+                          ⚡
+                        </span>
+                        <span className="font-semibold text-xs sm:text-sm text-[#1f1e1c] group-hover:text-[#d94f3d] transition-colors truncate">
+                          Urgent Action Items
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#716e69] leading-relaxed">
+                        Identify emails needing urgent reply or deadlines
+                      </p>
+                    </button>
+
+                    <button
+                      onClick={() =>
+                        handleSendMessage(
+                          "Help me compose a professional email draft",
+                        )
+                      }
+                      className="p-3.5 sm:p-4 rounded-2xl bg-white border border-[#e8e4de] hover:border-[#d94f3d]/50 hover:bg-[#fff9f8] transition-all text-xs group cursor-pointer shadow-xs"
+                    >
+                      <div className="flex items-center gap-2.5 mb-1">
+                        <span className="h-7 w-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center text-sm font-semibold shrink-0">
+                          📝
+                        </span>
+                        <span className="font-semibold text-xs sm:text-sm text-[#1f1e1c] group-hover:text-[#d94f3d] transition-colors truncate">
+                          Draft New Email
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#716e69] leading-relaxed">
+                        Compose a tailored email draft with your signature
+                      </p>
+                    </button>
+
+                    <button
+                      onClick={() =>
+                        handleSendMessage(
+                          "Search for recent email threads and read the full conversation details",
+                        )
+                      }
+                      className="p-3.5 sm:p-4 rounded-2xl bg-white border border-[#e8e4de] hover:border-[#d94f3d]/50 hover:bg-[#fff9f8] transition-all text-xs group cursor-pointer shadow-xs"
+                    >
+                      <div className="flex items-center gap-2.5 mb-1">
+                        <span className="h-7 w-7 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center text-sm font-semibold shrink-0">
+                          🧵
+                        </span>
+                        <span className="font-semibold text-xs sm:text-sm text-[#1f1e1c] group-hover:text-[#d94f3d] transition-colors truncate">
+                          Deep Thread Reader
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#716e69] leading-relaxed">
+                        Inspect multi-turn conversations and message context
+                      </p>
+                    </button>
+
+                    <button
+                      onClick={() =>
+                        handleSendMessage(
+                          "Find newsletters or promotional emails so I can archive or clean them up",
+                        )
+                      }
+                      className="p-3.5 sm:p-4 rounded-2xl bg-white border border-[#e8e4de] hover:border-[#d94f3d]/50 hover:bg-[#fff9f8] transition-all text-xs group cursor-pointer shadow-xs"
+                    >
+                      <div className="flex items-center gap-2.5 mb-1">
+                        <span className="h-7 w-7 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center text-sm font-semibold shrink-0">
+                          🧹
+                        </span>
+                        <span className="font-semibold text-xs sm:text-sm text-[#1f1e1c] group-hover:text-[#d94f3d] transition-colors truncate">
+                          Inbox Triage & Clean
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#716e69] leading-relaxed">
+                        Triage, archive, label, or clean up newsletter clutter
+                      </p>
+                    </button>
+                  </div>
+
+                  {/* Safety badge */}
+                  <div className="mt-5 sm:mt-6 flex items-center justify-center gap-1.5 sm:gap-2 text-[10px] sm:text-[11px] text-[#8c8881] text-center">
+                    <span>🔒</span>
+                    <span>
+                      All send, reply, and delete operations require your
+                      explicit approval before execution.
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {messages.map((msg) => (
                 <div
                   key={msg.id}
-                  className={`flex gap-3 ${
+                  className={`flex gap-2 sm:gap-3 ${
                     msg.sender === "user" ? "justify-end" : "justify-start"
                   }`}
                 >
                   {/* AI Avatar */}
                   {msg.sender === "assistant" && (
-                    <div className="h-8 w-8 rounded-xl bg-gradient-to-tr from-[#d94f3d] to-[#e97745] flex items-center justify-center text-white text-xs font-bold shrink-0 mt-1 shadow-sm">
+                    <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-xl bg-gradient-to-tr from-[#d94f3d] to-[#e97745] flex items-center justify-center text-white text-[10px] sm:text-xs font-bold shrink-0 mt-1 shadow-xs">
                       AI
                     </div>
                   )}
 
                   <div
-                    className={`max-w-[88%] sm:max-w-2xl rounded-2xl text-sm leading-relaxed shadow-xs ${
+                    className={`max-w-[88%] sm:max-w-xl md:max-w-2xl rounded-2xl leading-relaxed shadow-xs overflow-hidden ${
                       msg.sender === "user"
-                        ? "bg-[#242321] text-white rounded-tr-xs px-4 py-3"
-                        : "bg-white text-[#242321] border border-[#e8e4de] rounded-tl-xs px-5 py-4"
+                        ? "bg-[#242321] text-white rounded-tr-xs px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm"
+                        : "bg-white text-[#242321] border border-[#e8e4de] rounded-tl-xs px-4 sm:px-5 py-3.5 sm:py-4 text-xs sm:text-sm"
                     }`}
                   >
                     {/* Message body */}
                     {msg.sender === "user" ? (
-                      <p className="whitespace-pre-wrap">{msg.text}</p>
+                      <p className="whitespace-pre-wrap break-words">
+                        {msg.text}
+                      </p>
                     ) : msg.status === "pending_approval" &&
                       msg.pending_action ? (
                       /* ── Approval Card ─────────────────────────────── */
-                      <div>
+                      <div className="space-y-3">
                         {msg.pending_action.tool === "send_email" && (
                           <>
-                            <div className="flex items-center gap-2 mb-3">
+                            <div className="flex items-center gap-2">
                               <span className="text-base">📤</span>
-                              <span className="font-semibold text-[#1f1e1c] text-sm">
+                              <span className="font-semibold text-[#1f1e1c] text-xs sm:text-sm">
                                 Ready to send this email
                               </span>
                             </div>
 
-                            <div className="rounded-xl bg-[#faf8f5] border border-[#e8e4de] p-3.5 space-y-2 text-xs mb-3">
-                              <div className="flex gap-2">
-                                <span className="font-semibold text-[#716e69] w-14 shrink-0">
+                            <div className="rounded-xl bg-[#faf8f5] border border-[#e8e4de] p-3 space-y-2 text-xs">
+                              <div className="flex gap-2 break-all">
+                                <span className="font-semibold text-[#716e69] w-12 sm:w-14 shrink-0">
                                   To:
                                 </span>
                                 <span className="text-[#1f1e1c] font-medium">
                                   {msg.pending_action.to}
                                 </span>
                               </div>
-                              <div className="flex gap-2">
-                                <span className="font-semibold text-[#716e69] w-14 shrink-0">
+                              <div className="flex gap-2 break-words">
+                                <span className="font-semibold text-[#716e69] w-12 sm:w-14 shrink-0">
                                   Subject:
                                 </span>
                                 <span className="text-[#1f1e1c] font-medium">
@@ -947,10 +1161,10 @@ export default function Home() {
                                 </span>
                               </div>
                               <div className="pt-2 border-t border-[#ede9e2]">
-                                <span className="font-semibold text-[#716e69] block mb-1.5">
+                                <span className="font-semibold text-[#716e69] block mb-1">
                                   Body:
                                 </span>
-                                <pre className="whitespace-pre-wrap font-sans text-[#3b3834] leading-relaxed max-h-40 overflow-y-auto">
+                                <pre className="whitespace-pre-wrap font-sans text-[#3b3834] leading-relaxed max-h-40 overflow-y-auto break-words text-[11px] sm:text-xs">
                                   {msg.pending_action.body}
                                 </pre>
                               </div>
@@ -960,16 +1174,16 @@ export default function Home() {
 
                         {msg.pending_action.tool === "reply_email" && (
                           <>
-                            <div className="flex items-center gap-2 mb-3">
+                            <div className="flex items-center gap-2">
                               <span className="text-base">↩️</span>
-                              <span className="font-semibold text-[#1f1e1c] text-sm">
+                              <span className="font-semibold text-[#1f1e1c] text-xs sm:text-sm">
                                 Ready to send this reply
                               </span>
                             </div>
 
-                            <div className="rounded-xl bg-[#faf8f5] border border-[#e8e4de] p-3.5 space-y-2 text-xs mb-3">
-                              <div className="flex gap-2">
-                                <span className="font-semibold text-[#716e69] w-20 shrink-0">
+                            <div className="rounded-xl bg-[#faf8f5] border border-[#e8e4de] p-3 space-y-2 text-xs">
+                              <div className="flex gap-2 break-all">
+                                <span className="font-semibold text-[#716e69] w-16 sm:w-20 shrink-0">
                                   Thread ID:
                                 </span>
                                 <span className="text-[#1f1e1c] font-mono text-[11px]">
@@ -977,10 +1191,10 @@ export default function Home() {
                                 </span>
                               </div>
                               <div className="pt-2 border-t border-[#ede9e2]">
-                                <span className="font-semibold text-[#716e69] block mb-1.5">
+                                <span className="font-semibold text-[#716e69] block mb-1">
                                   Reply Content:
                                 </span>
-                                <pre className="whitespace-pre-wrap font-sans text-[#3b3834] leading-relaxed max-h-40 overflow-y-auto">
+                                <pre className="whitespace-pre-wrap font-sans text-[#3b3834] leading-relaxed max-h-40 overflow-y-auto break-words text-[11px] sm:text-xs">
                                   {msg.pending_action.body}
                                 </pre>
                               </div>
@@ -990,16 +1204,16 @@ export default function Home() {
 
                         {msg.pending_action.tool === "delete_email" && (
                           <>
-                            <div className="flex items-center gap-2 mb-3">
+                            <div className="flex items-center gap-2">
                               <span className="text-base">🗑️</span>
-                              <span className="font-semibold text-red-600 text-sm">
+                              <span className="font-semibold text-red-600 text-xs sm:text-sm">
                                 Confirm Moving Email to Trash
                               </span>
                             </div>
 
-                            <div className="rounded-xl bg-red-50/50 border border-red-200 p-3.5 space-y-2 text-xs mb-3">
-                              <div className="flex gap-2">
-                                <span className="font-semibold text-red-700 w-24 shrink-0">
+                            <div className="rounded-xl bg-red-50/50 border border-red-200 p-3 space-y-2 text-xs">
+                              <div className="flex gap-2 break-all">
+                                <span className="font-semibold text-red-700 w-20 sm:w-24 shrink-0">
                                   Message ID:
                                 </span>
                                 <span className="text-red-900 font-mono text-[11px]">
@@ -1014,12 +1228,12 @@ export default function Home() {
                           </>
                         )}
 
-                        <div className="flex gap-2">
+                        <div className="flex flex-col sm:flex-row gap-2 pt-1">
                           <button
                             onClick={() =>
                               handleResume(msg.id, msg.thread_id!, "approve")
                             }
-                            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-4 rounded-xl text-white text-xs font-semibold transition-colors cursor-pointer ${
+                            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3.5 rounded-xl text-white text-xs font-semibold transition-colors cursor-pointer ${
                               msg.pending_action.tool === "delete_email"
                                 ? "bg-red-500 hover:bg-red-600"
                                 : "bg-emerald-500 hover:bg-emerald-600"
@@ -1033,7 +1247,7 @@ export default function Home() {
                             onClick={() =>
                               handleResume(msg.id, msg.thread_id!, "cancel")
                             }
-                            className="flex-1 flex items-center justify-center gap-1.5 py-2 px-4 rounded-xl bg-white border border-[#dedad3] hover:bg-red-50 hover:border-red-200 hover:text-red-600 text-[#5e5b56] text-xs font-semibold transition-colors cursor-pointer"
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3.5 rounded-xl bg-white border border-[#dedad3] hover:bg-red-50 hover:border-red-200 hover:text-red-600 text-[#5e5b56] text-xs font-semibold transition-colors cursor-pointer"
                           >
                             ❌ Cancel
                           </button>
@@ -1064,8 +1278,8 @@ export default function Home() {
                     {msg.sender === "assistant" &&
                       msg.tools_used &&
                       msg.tools_used.length > 0 && (
-                        <div className="mt-3 pt-3 border-t border-[#f0ece6] flex flex-wrap gap-1.5">
-                          <span className="text-[10px] text-[#a09c96] font-medium mr-1 self-center">
+                        <div className="mt-3 pt-3 border-t border-[#f0ece6] flex flex-wrap items-center gap-1.5">
+                          <span className="text-[10px] text-[#a09c96] font-medium mr-1 shrink-0">
                             Used:
                           </span>
                           {Array.from(new Set(msg.tools_used)).map(
@@ -1086,7 +1300,7 @@ export default function Home() {
                               return (
                                 <span
                                   key={i}
-                                  className="inline-flex items-center gap-1 rounded-full bg-[#fff7f5] border border-[#f5d5d0] px-2.5 py-0.5 text-[10px] font-semibold text-[#c44332]"
+                                  className="inline-flex items-center gap-1 rounded-full bg-[#fff7f5] border border-[#f5d5d0] px-2 py-0.5 text-[10px] font-semibold text-[#c44332] shrink-0"
                                 >
                                   {icons[tool] || "🔧"}{" "}
                                   {tool.replace(/_/g, " ")}
@@ -1097,16 +1311,16 @@ export default function Home() {
                         </div>
                       )}
 
-                    {/* Email cards (from manual fetch button) */}
+                    {/* Email cards list */}
                     {msg.type === "emails_list" &&
                       msg.emails &&
                       msg.emails.length > 0 && (
-                        <div className="mt-3.5 space-y-2.5">
+                        <div className="mt-3 space-y-2">
                           {msg.emails.map((email) => (
                             <div
                               key={email.id}
                               onClick={() => handleOpenEmailDetail(email.id)}
-                              className="group rounded-xl border border-[#ebe7e1] bg-[#faf8f5] hover:bg-white hover:border-[#d94f3d]/50 p-3.5 text-left transition-all cursor-pointer hover:shadow-xs"
+                              className="group rounded-xl border border-[#ebe7e1] bg-[#faf8f5] hover:bg-white hover:border-[#d94f3d]/50 p-3 text-left transition-all cursor-pointer hover:shadow-xs"
                             >
                               <div className="flex items-center justify-between gap-2 mb-1">
                                 <span className="font-semibold text-xs text-[#1f1e1c] group-hover:text-[#d94f3d] transition-colors truncate">
@@ -1114,7 +1328,7 @@ export default function Home() {
                                 </span>
                                 <div className="flex items-center gap-1.5 shrink-0">
                                   {email.unread && (
-                                    <span className="rounded-full bg-[#d94f3d]/10 px-2 py-0.5 text-[10px] font-semibold text-[#d94f3d]">
+                                    <span className="rounded-full bg-[#d94f3d]/10 px-1.5 py-0.5 text-[9px] font-semibold text-[#d94f3d]">
                                       Unread
                                     </span>
                                   )}
@@ -1127,14 +1341,14 @@ export default function Home() {
                                   </span>
                                 </div>
                               </div>
-                              <h4 className="font-semibold text-xs text-[#33302c] mb-1">
+                              <h4 className="font-semibold text-xs text-[#33302c] mb-1 truncate">
                                 {email.subject}
                               </h4>
                               <p className="text-xs text-[#716e69] line-clamp-2 leading-relaxed">
                                 {email.snippet}
                               </p>
-                              <div className="mt-2.5 pt-2 border-t border-[#f0ece6] text-[11px] text-[#d94f3d] font-medium">
-                                Click to read full email & HTML body →
+                              <div className="mt-2 pt-1.5 border-t border-[#f0ece6] text-[10px] text-[#d94f3d] font-medium">
+                                Click to read full email body →
                               </div>
                             </div>
                           ))}
@@ -1155,7 +1369,7 @@ export default function Home() {
 
                   {/* User Avatar */}
                   {msg.sender === "user" && (
-                    <div className="h-8 w-8 rounded-xl bg-[#3b3834] text-white flex items-center justify-center text-xs font-semibold shrink-0 mt-1">
+                    <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-xl bg-[#3b3834] text-white flex items-center justify-center text-[10px] sm:text-xs font-semibold shrink-0 mt-1">
                       {user.name ? user.name.charAt(0).toUpperCase() : "U"}
                     </div>
                   )}
@@ -1164,11 +1378,11 @@ export default function Home() {
 
               {/* Typing indicator */}
               {isTyping && !messages.some((m) => m.status === "streaming") && (
-                <div className="flex gap-3 justify-start">
-                  <div className="h-8 w-8 rounded-xl bg-gradient-to-tr from-[#d94f3d] to-[#e97745] flex items-center justify-center text-white text-xs font-bold shrink-0 mt-1 shadow-sm">
+                <div className="flex gap-2 sm:gap-3 justify-start">
+                  <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-xl bg-gradient-to-tr from-[#d94f3d] to-[#e97745] flex items-center justify-center text-white text-[10px] sm:text-xs font-bold shrink-0 mt-1 shadow-xs">
                     AI
                   </div>
-                  <div className="rounded-2xl rounded-tl-xs bg-white border border-[#e8e4de] px-4 py-3.5 flex items-center gap-1.5 shadow-xs">
+                  <div className="rounded-2xl rounded-tl-xs bg-white border border-[#e8e4de] px-3.5 py-2.5 sm:px-4 sm:py-3 flex items-center gap-1.5 shadow-xs">
                     <span className="text-xs text-[#a09c96] mr-1">
                       Thinking
                     </span>
@@ -1193,13 +1407,13 @@ export default function Home() {
           </div>
 
           {/* Chat Input Bar */}
-          <div className="p-4 sm:p-5 border-t border-[#e8e4de] bg-white/60 backdrop-blur-md shrink-0">
+          <div className="p-3 sm:p-4 md:p-5 border-t border-[#e8e4de] bg-white/70 backdrop-blur-md shrink-0">
             <div className="max-w-3xl mx-auto">
               {/* Quick suggestions pills */}
-              <div className="flex items-center gap-2 overflow-x-auto pb-2.5 mb-1 no-scrollbar text-xs">
+              <div className="flex items-center gap-2 overflow-x-auto pb-2 mb-1 no-scrollbar text-xs">
                 <button
                   onClick={() => handleSendMessage("Show my latest 5 emails")}
-                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-[#e0dcce] hover:border-[#d94f3d]/50 hover:bg-[#fff7f5] text-[#595650] hover:text-[#d94f3d] transition-all cursor-pointer"
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-[#e0dcce] hover:border-[#d94f3d]/50 hover:bg-[#fff7f5] text-[#595650] hover:text-[#d94f3d] text-xs transition-all cursor-pointer"
                 >
                   <span>📬</span>
                   <span>Recent Emails</span>
@@ -1208,10 +1422,19 @@ export default function Home() {
                   onClick={() =>
                     handleSendMessage("Summarize my unread emails")
                   }
-                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-[#e0dcce] hover:border-[#d94f3d]/50 hover:bg-[#fff7f5] text-[#595650] hover:text-[#d94f3d] transition-all cursor-pointer"
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-[#e0dcce] hover:border-[#d94f3d]/50 hover:bg-[#fff7f5] text-[#595650] hover:text-[#d94f3d] text-xs transition-all cursor-pointer"
                 >
                   <span>📊</span>
                   <span>Summarize Unread</span>
+                </button>
+                <button
+                  onClick={() =>
+                    handleSendMessage("Find urgent action items or requests")
+                  }
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-[#e0dcce] hover:border-[#d94f3d]/50 hover:bg-[#fff7f5] text-[#595650] hover:text-[#d94f3d] text-xs transition-all cursor-pointer"
+                >
+                  <span>⚡</span>
+                  <span>Action Items</span>
                 </button>
               </div>
 
@@ -1221,19 +1444,19 @@ export default function Home() {
                   e.preventDefault();
                   handleSendMessage();
                 }}
-                className="relative flex items-center rounded-2xl bg-white border border-[#dedad3] shadow-sm focus-within:border-[#d94f3d] focus-within:ring-3 focus-within:ring-[#d94f3d]/15 transition-all p-1.5"
+                className="relative flex items-center rounded-2xl bg-white border border-[#dedad3] shadow-xs focus-within:border-[#d94f3d] focus-within:ring-3 focus-within:ring-[#d94f3d]/15 transition-all p-1 sm:p-1.5"
               >
                 <input
                   type="text"
                   value={inputPrompt}
                   onChange={(e) => setInputPrompt(e.target.value)}
-                  placeholder="Ask your email agent (e.g. 'Show latest 5 emails')..."
-                  className="w-full bg-transparent px-4 py-2.5 text-sm text-[#242321] placeholder-[#9e9a93] focus:outline-none"
+                  placeholder="Ask your email agent..."
+                  className="w-full bg-transparent px-3 sm:px-4 py-2 text-xs sm:text-sm text-[#242321] placeholder-[#9e9a93] focus:outline-none"
                 />
                 <button
                   type="submit"
                   disabled={!inputPrompt.trim()}
-                  className="h-10 w-10 flex items-center justify-center rounded-xl bg-[#d94f3d] text-white hover:bg-[#c44332] disabled:opacity-30 disabled:hover:bg-[#d94f3d] transition-all cursor-pointer shrink-0"
+                  className="h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl bg-[#d94f3d] text-white hover:bg-[#c44332] disabled:opacity-30 disabled:hover:bg-[#d94f3d] transition-all cursor-pointer shrink-0"
                 >
                   <svg
                     className="w-4 h-4"
@@ -1250,7 +1473,7 @@ export default function Home() {
                   </svg>
                 </button>
               </form>
-              <p className="text-center text-[11px] text-[#9e9a93] mt-2">
+              <p className="text-center text-[10px] sm:text-[11px] text-[#9e9a93] mt-1.5">
                 Agent operates strictly on authorized Gmail permissions using
                 OAuth 2.0.
               </p>
@@ -1259,103 +1482,95 @@ export default function Home() {
         </main>
 
         {/* ========================================== */}
-        {/* EMAIL DETAIL READER MODAL / SLIDEOVER      */}
+        {/* EMAIL DETAIL READER MODAL / FULLSCREEN SHEET */}
         {/* ========================================== */}
         {(selectedEmail || loadingEmailDetail) && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 sm:p-6 animate-in fade-in duration-200">
-            <div className="w-full max-w-4xl h-[90vh] bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-[#dedad3]">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-0 sm:p-4 md:p-6 animate-in fade-in duration-200">
+            <div className="w-full h-full sm:h-[90vh] sm:max-w-4xl bg-white rounded-none sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden border-0 sm:border border-[#dedad3]">
               {loadingEmailDetail ? (
                 <div className="flex-1 flex flex-col items-center justify-center p-8">
                   <div className="h-10 w-10 animate-spin rounded-full border-3 border-[#d94f3d] border-t-transparent" />
-                  <p className="mt-4 text-sm font-medium text-[#716e69]">
+                  <p className="mt-4 text-xs sm:text-sm font-medium text-[#716e69]">
                     Loading email body & contents...
                   </p>
                 </div>
               ) : selectedEmail ? (
                 <>
                   {/* Modal Header */}
-                  <header className="p-5 sm:px-6 border-b border-[#e8e4de] bg-[#fbf9f6] flex items-start justify-between shrink-0">
-                    <div className="flex-1 min-w-0 pr-4">
-                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                  <header className="p-4 sm:p-5 border-b border-[#e8e4de] bg-[#fbf9f6] flex flex-col sm:flex-row sm:items-start justify-between gap-3 shrink-0">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 sm:gap-2 mb-1.5 flex-wrap">
                         {selectedEmail.unread && (
-                          <span className="rounded-full bg-[#d94f3d]/10 px-2.5 py-0.5 text-xs font-semibold text-[#d94f3d]">
+                          <span className="rounded-full bg-[#d94f3d]/10 px-2 py-0.5 text-[10px] sm:text-xs font-semibold text-[#d94f3d]">
                             Unread
                           </span>
                         )}
-                        <span className="text-xs text-[#8c8881]">
+                        <span className="text-[11px] sm:text-xs text-[#8c8881]">
                           {selectedEmail.date}
                         </span>
                         {selectedEmail.labels &&
                           selectedEmail.labels.slice(0, 3).map((l, i) => (
                             <span
                               key={i}
-                              className="text-[10px] rounded-md bg-gray-100 text-gray-600 px-2 py-0.5 font-mono"
+                              className="text-[10px] rounded-md bg-gray-100 text-gray-600 px-1.5 py-0.5 font-mono"
                             >
                               {l}
                             </span>
                           ))}
                       </div>
 
-                      <h2 className="text-lg sm:text-xl font-bold text-[#1f1e1c] leading-snug">
+                      <h2 className="text-base sm:text-lg md:text-xl font-bold text-[#1f1e1c] leading-snug break-words">
                         {selectedEmail.subject}
                       </h2>
 
                       <div className="mt-2 text-xs text-[#5c5852] space-y-0.5">
-                        <p>
+                        <p className="truncate">
                           <span className="font-semibold text-[#3b3834]">
                             From:
                           </span>{" "}
                           {selectedEmail.from}
                         </p>
                         {selectedEmail.to && (
-                          <p>
+                          <p className="truncate">
                             <span className="font-semibold text-[#3b3834]">
                               To:
                             </span>{" "}
                             {selectedEmail.to}
                           </p>
                         )}
-                        {selectedEmail.cc && (
-                          <p>
-                            <span className="font-semibold text-[#3b3834]">
-                              Cc:
-                            </span>{" "}
-                            {selectedEmail.cc}
-                          </p>
-                        )}
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0 border-t sm:border-t-0 pt-2 sm:pt-0 border-[#e8e4de]">
                       {/* View Mode Toggle (HTML vs Plain Text) */}
                       {selectedEmail.body_html && (
-                        <div className="flex rounded-xl bg-gray-100 p-1 border border-gray-200 text-xs">
+                        <div className="flex rounded-xl bg-gray-100 p-0.5 border border-gray-200 text-xs">
                           <button
                             onClick={() => setEmailViewMode("html")}
-                            className={`px-3 py-1 rounded-lg font-medium transition-all cursor-pointer ${
+                            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                               emailViewMode === "html"
                                 ? "bg-white text-[#1f1e1c] shadow-xs"
                                 : "text-gray-500 hover:text-gray-900"
                             }`}
                           >
-                            HTML View
+                            HTML
                           </button>
                           <button
                             onClick={() => setEmailViewMode("plain")}
-                            className={`px-3 py-1 rounded-lg font-medium transition-all cursor-pointer ${
+                            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                               emailViewMode === "plain"
                                 ? "bg-white text-[#1f1e1c] shadow-xs"
                                 : "text-gray-500 hover:text-gray-900"
                             }`}
                           >
-                            Plain Text
+                            Plain
                           </button>
                         </div>
                       )}
 
                       <button
                         onClick={() => setSelectedEmail(null)}
-                        className="h-9 w-9 rounded-xl border border-[#dedad3] bg-white text-[#716e69] hover:bg-gray-100 flex items-center justify-center transition-colors cursor-pointer"
+                        className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl border border-[#dedad3] bg-white text-[#716e69] hover:bg-gray-100 flex items-center justify-center transition-colors cursor-pointer shrink-0"
                         title="Close"
                       >
                         ✕
@@ -1366,17 +1581,17 @@ export default function Home() {
                   {/* Attachments Section if present */}
                   {selectedEmail.attachments &&
                     selectedEmail.attachments.length > 0 && (
-                      <div className="px-6 py-2.5 bg-[#faf8f5] border-b border-[#e8e4de] flex items-center gap-2 overflow-x-auto text-xs shrink-0">
-                        <span className="font-semibold text-[#5c5852] shrink-0">
+                      <div className="px-4 sm:px-6 py-2 bg-[#faf8f5] border-b border-[#e8e4de] flex items-center gap-2 overflow-x-auto no-scrollbar text-xs shrink-0">
+                        <span className="font-semibold text-[#5c5852] shrink-0 text-[11px] sm:text-xs">
                           📎 Attachments ({selectedEmail.attachments.length}):
                         </span>
                         {selectedEmail.attachments.map((att, idx) => (
                           <div
                             key={idx}
-                            className="shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-[#e0dcce] text-[#33302c]"
+                            className="shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-[#e0dcce] text-[#33302c] text-xs"
                           >
                             <span>📄</span>
-                            <span className="font-medium max-w-[150px] truncate">
+                            <span className="font-medium max-w-[120px] sm:max-w-[150px] truncate">
                               {att.filename}
                             </span>
                             <span className="text-[10px] text-gray-400">
@@ -1399,7 +1614,8 @@ export default function Home() {
                               <meta charset="utf-8">
                               <meta name="viewport" content="width=device-width, initial-scale=1.0">
                               <style>
-                                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 24px; color: #242321; line-height: 1.6; margin: 0; }
+                                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 16px; color: #242321; line-height: 1.6; margin: 0; word-break: break-word; }
+                                @media (min-width: 640px) { body { padding: 24px; } }
                                 img { max-width: 100% !important; height: auto !important; }
                                 a { color: #d94f3d; }
                               </style>
@@ -1410,11 +1626,11 @@ export default function Home() {
                           </html>
                         `}
                         sandbox="allow-same-origin allow-popups"
-                        className="w-full h-full min-h-[450px] border-0"
+                        className="w-full h-full min-h-[300px] border-0"
                       />
                     ) : (
-                      <div className="p-6">
-                        <pre className="whitespace-pre-wrap font-sans text-sm text-[#242321] leading-relaxed">
+                      <div className="p-4 sm:p-6">
+                        <pre className="whitespace-pre-wrap font-sans text-xs sm:text-sm text-[#242321] leading-relaxed break-words">
                           {selectedEmail.body_plain || "No plain text content."}
                         </pre>
                       </div>
@@ -1422,11 +1638,13 @@ export default function Home() {
                   </div>
 
                   {/* Modal Footer */}
-                  <footer className="px-6 py-3 border-t border-[#e8e4de] bg-[#fbf9f6] flex items-center justify-between text-xs text-[#8c8881] shrink-0">
-                    <span>Message ID: {selectedEmail.id}</span>
+                  <footer className="px-4 sm:px-6 py-2.5 sm:py-3 border-t border-[#e8e4de] bg-[#fbf9f6] flex items-center justify-between text-[11px] sm:text-xs text-[#8c8881] shrink-0">
+                    <span className="truncate max-w-[150px] sm:max-w-none">
+                      ID: {selectedEmail.id}
+                    </span>
                     <button
                       onClick={() => setSelectedEmail(null)}
-                      className="px-4 py-1.5 rounded-xl bg-[#242321] text-white font-medium hover:bg-black transition-colors cursor-pointer"
+                      className="px-3.5 py-1.5 rounded-xl bg-[#242321] text-white font-medium hover:bg-black transition-colors cursor-pointer text-xs"
                     >
                       Close Viewer
                     </button>
@@ -1446,18 +1664,20 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-[#f7f5f2] text-[#242321] font-sans flex flex-col justify-between">
       {/* Landing Navbar */}
-      <header className="w-full max-w-6xl mx-auto px-6 py-6 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-[#d94f3d] to-[#e97745] text-white font-bold text-lg shadow-sm">
-            M
-          </div>
-          <span className="font-bold text-base tracking-tight text-[#242321]">
-            Email Agent
+      <header className="w-full max-w-6xl mx-auto px-4 sm:px-6 py-4 sm:py-6 flex items-center justify-between">
+        <div className="flex items-center gap-2.5 sm:gap-3">
+          <img
+            src="/favicon.svg"
+            alt="MailPilot AI"
+            className="h-9 w-9 sm:h-10 sm:w-10 rounded-2xl shadow-sm shrink-0"
+          />
+          <span className="font-bold text-sm sm:text-base tracking-tight text-[#242321]">
+            MailPilot AI
           </span>
         </div>
 
         <div className="flex items-center gap-3">
-          <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 sm:px-3 py-1 text-[11px] sm:text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
             OAuth 2.0 Secure
           </span>
@@ -1465,33 +1685,33 @@ export default function Home() {
       </header>
 
       {/* Hero Section */}
-      <section className="w-full max-w-3xl mx-auto px-6 py-12 flex flex-col items-center text-center">
-        <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-white px-4 py-1.5 text-xs font-medium text-[#5c5852] shadow-xs ring-1 ring-black/5">
+      <section className="w-full max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-14 flex flex-col items-center text-center">
+        <div className="mb-5 sm:mb-6 inline-flex items-center gap-2 rounded-full bg-white px-3.5 sm:px-4 py-1.5 text-xs font-medium text-[#5c5852] shadow-xs ring-1 ring-black/5">
           <span className="text-[#d94f3d]">✨</span>
           <span>Intelligent Gmail AI Workspace</span>
         </div>
 
-        <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-[#1f1e1c] leading-[1.15]">
+        <h1 className="text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight text-[#1f1e1c] leading-[1.15]">
           A calm, focused AI assistant for your{" "}
           <span className="bg-gradient-to-r from-[#d94f3d] to-[#e97745] bg-clip-text text-transparent">
             Gmail inbox
           </span>
         </h1>
 
-        <p className="mt-5 max-w-xl text-base sm:text-lg leading-relaxed text-[#716e69]">
+        <p className="mt-4 sm:mt-5 max-w-xl text-sm sm:text-base md:text-lg leading-relaxed text-[#716e69]">
           Connect your Gmail in one click to automatically summarize threads,
           extract action items, find receipts, and draft intelligent replies.
         </p>
 
         {/* Primary CTA Button */}
-        <div className="mt-8 flex flex-col sm:flex-row items-center gap-4 w-full justify-center">
+        <div className="mt-7 sm:mt-8 flex flex-col sm:flex-row items-center gap-4 w-full justify-center">
           <button
             type="button"
             onClick={handleConnectGmail}
-            className="w-full sm:w-auto inline-flex h-13 items-center justify-center gap-3 rounded-2xl bg-[#242321] hover:bg-black px-8 text-sm font-semibold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-black/15 cursor-pointer"
+            className="w-full sm:w-auto inline-flex h-12 sm:h-13 items-center justify-center gap-3 rounded-2xl bg-[#242321] hover:bg-black px-6 sm:px-8 text-sm font-semibold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-black/15 cursor-pointer"
           >
             {/* Google G icon */}
-            <svg className="w-4 h-4" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
               <path
                 fill="#4285F4"
                 d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"
@@ -1514,39 +1734,39 @@ export default function Home() {
         </div>
 
         {/* Feature Highlights Grid */}
-        <div className="mt-14 grid grid-cols-1 sm:grid-cols-3 gap-4 w-full text-left">
-          <div className="p-5 rounded-2xl bg-white border border-[#ebe7e1] shadow-xs">
-            <div className="h-9 w-9 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center text-lg mb-3">
+        <div className="mt-10 sm:mt-14 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5 sm:gap-4 w-full text-left">
+          <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#ebe7e1] shadow-xs">
+            <div className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center text-base sm:text-lg mb-2.5">
               📊
             </div>
-            <h3 className="text-sm font-semibold text-[#242321]">
+            <h3 className="text-xs sm:text-sm font-semibold text-[#242321]">
               Smart Digests
             </h3>
-            <p className="mt-1 text-xs text-[#716e69] leading-relaxed">
+            <p className="mt-1 text-[11px] sm:text-xs text-[#716e69] leading-relaxed">
               Summarize dozens of unread newsletters and updates in seconds.
             </p>
           </div>
 
-          <div className="p-5 rounded-2xl bg-white border border-[#ebe7e1] shadow-xs">
-            <div className="h-9 w-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-lg mb-3">
+          <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#ebe7e1] shadow-xs">
+            <div className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-base sm:text-lg mb-2.5">
               ⚡
             </div>
-            <h3 className="text-sm font-semibold text-[#242321]">
+            <h3 className="text-xs sm:text-sm font-semibold text-[#242321]">
               Action Item Extraction
             </h3>
-            <p className="mt-1 text-xs text-[#716e69] leading-relaxed">
+            <p className="mt-1 text-[11px] sm:text-xs text-[#716e69] leading-relaxed">
               Identify urgent client requests, invoices, and scheduling asks.
             </p>
           </div>
 
-          <div className="p-5 rounded-2xl bg-white border border-[#ebe7e1] shadow-xs">
-            <div className="h-9 w-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-lg mb-3">
+          <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#ebe7e1] shadow-xs sm:col-span-2 md:col-span-1">
+            <div className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-base sm:text-lg mb-2.5">
               🔒
             </div>
-            <h3 className="text-sm font-semibold text-[#242321]">
+            <h3 className="text-xs sm:text-sm font-semibold text-[#242321]">
               Privacy First
             </h3>
-            <p className="mt-1 text-xs text-[#716e69] leading-relaxed">
+            <p className="mt-1 text-[11px] sm:text-xs text-[#716e69] leading-relaxed">
               Direct OAuth 2.0 with minimal scopes. No plain passwords stored.
             </p>
           </div>
@@ -1554,8 +1774,8 @@ export default function Home() {
       </section>
 
       {/* Footer */}
-      <footer className="w-full max-w-6xl mx-auto px-6 py-6 border-t border-[#e8e4de] text-center text-xs text-[#9e9a93]">
-        <p>Email Agent AI • Built with FastAPI, SQLModel & Next.js</p>
+      <footer className="w-full max-w-6xl mx-auto px-4 sm:px-6 py-4 sm:py-6 border-t border-[#e8e4de] text-center text-xs text-[#9e9a93]">
+        <p>MailPilot AI • Built with FastAPI, SQLModel & Next.js</p>
       </footer>
     </main>
   );
