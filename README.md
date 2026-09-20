@@ -1,3 +1,7 @@
+<p align="left">
+  <img src="./client/public/favicon.svg" alt="MailPilot AI Logo" width="36" height="36" />
+</p>
+
 # MailPilot AI — Autonomous Gmail Co-Pilot
 
 MailPilot AI is an autonomous email assistant built with LangGraph, Google Gemini 2.0, FastAPI, and Next.js. It enables users to interact with their Gmail inbox using natural language, backed by a Human-in-the-Loop (HITL) safety mechanism that pauses execution before sensitive actions like sending or deleting emails.
