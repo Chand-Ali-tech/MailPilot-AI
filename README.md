@@ -80,6 +80,7 @@ LangGraph Agent (Gemini 2.0 Flash Lite)
 
 <img width="1310" height="647" alt="image" src="https://github.com/user-attachments/assets/3eb9a854-549e-4344-aaac-b6788fd5d6ef" />
 
+## Dashboard (For loggedin users)
 
 <img width="1310" height="647" alt="image" src="https://github.com/user-attachments/assets/1e545465-9846-42d0-b9e4-c773ffe3ca77" />
 
