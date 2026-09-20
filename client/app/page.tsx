@@ -207,6 +207,14 @@ function MarkdownMessage({ text }: { text: string }) {
   return <div className="space-y-0.5 text-sm">{elements}</div>;
 }
 
+// A full conversation stored in localStorage (for the conversations panel)
+interface StoredConversation {
+  id: string;
+  title: string; // derived from the first user message
+  messages: ChatMessage[];
+  created_at: number; // unix timestamp ms
+}
+
 export default function Home() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -216,6 +224,66 @@ export default function Home() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [latestEmails, setLatestEmails] = useState<EmailItem[]>([]);
   const [fetchingEmails, setFetchingEmails] = useState(false);
+
+  // Conversation history (stored in localStorage)
+  const [currentConvId, setCurrentConvId] = useState<string>("");
+  const [conversations, setConversations] = useState<StoredConversation[]>([]);
+  const [showConvPanel, setShowConvPanel] = useState(false);
+
+  const STORAGE_KEY = "email_agent_conversations";
+  const HISTORY_LIMIT = 6; // number of past messages sent to the LLM
+
+  // Load all stored conversations from localStorage
+  const loadConversations = (): StoredConversation[] => {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    } catch {
+      return [];
+    }
+  };
+
+  // Save the current messages under the current conversation ID
+  const saveConversation = (convId: string, msgs: ChatMessage[]) => {
+    if (!convId || msgs.length === 0) return;
+    const all = loadConversations();
+    const existing = all.find((c) => c.id === convId);
+    const firstUserMsg =
+      msgs.find((m) => m.sender === "user")?.text || "New chat";
+    const title =
+      firstUserMsg.length > 50
+        ? firstUserMsg.slice(0, 47) + "..."
+        : firstUserMsg;
+
+    if (existing) {
+      existing.messages = msgs;
+      existing.title = title;
+    } else {
+      all.unshift({
+        id: convId,
+        title,
+        messages: msgs,
+        created_at: Date.now(),
+      });
+    }
+    // Keep at most 30 conversations
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(all.slice(0, 30)));
+    setConversations(all.slice(0, 30));
+  };
+
+  // Start a fresh conversation (called by "New Chat" button)
+  const startNewConversation = () => {
+    const newId = `conv_${Date.now()}`;
+    setCurrentConvId(newId);
+    setMessages([]);
+    setShowConvPanel(false);
+  };
+
+  // Restore a past conversation from localStorage
+  const restoreConversation = (conv: StoredConversation) => {
+    setCurrentConvId(conv.id);
+    setMessages(conv.messages);
+    setShowConvPanel(false);
+  };
 
   // Email Detail Modal State
   const [selectedEmail, setSelectedEmail] = useState<EmailDetail | null>(null);
@@ -904,19 +972,21 @@ export default function Home() {
                           <span className="text-[10px] text-[#a09c96] font-medium mr-1 self-center">
                             Used:
                           </span>
-                          {msg.tools_used.map((tool, i) => (
-                            <span
-                              key={i}
-                              className="inline-flex items-center gap-1 rounded-full bg-[#fff7f5] border border-[#f5d5d0] px-2.5 py-0.5 text-[10px] font-semibold text-[#c44332]"
-                            >
-                              {tool === "search_emails"
-                                ? "🔍"
-                                : tool === "send_email"
-                                  ? "📤"
-                                  : "🔧"}{" "}
-                              {tool.replace(/_/g, " ")}
-                            </span>
-                          ))}
+                          {Array.from(new Set(msg.tools_used)).map(
+                            (tool, i) => (
+                              <span
+                                key={i}
+                                className="inline-flex items-center gap-1 rounded-full bg-[#fff7f5] border border-[#f5d5d0] px-2.5 py-0.5 text-[10px] font-semibold text-[#c44332]"
+                              >
+                                {tool === "search_emails"
+                                  ? "🔍"
+                                  : tool === "send_email"
+                                    ? "📤"
+                                    : "🔧"}{" "}
+                                {tool.replace(/_/g, " ")}
+                              </span>
+                            ),
+                          )}
                         </div>
                       )}
 

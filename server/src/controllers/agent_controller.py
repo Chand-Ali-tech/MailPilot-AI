@@ -14,6 +14,7 @@ from src.agents.email_agent import stream_agent_run, stream_resume_agent_run
 # ---------------------------------------------------------------------------
 class ChatRequest(BaseModel):
     message: str
+    history: list[dict] = []  # last N messages for short-term memory
 
 
 class ResumeRequest(BaseModel):
@@ -105,6 +106,7 @@ async def agent_chat(
                 refresh_token=connection.refresh_token,
                 access_token=connection.access_token,
                 user_name=user_name,
+                history=body.history,
             )
         except Exception as e:
             import json, traceback

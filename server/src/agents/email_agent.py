@@ -4,7 +4,7 @@ import sqlite3
 import uuid
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.sqlite import SqliteSaver
 
@@ -105,13 +105,17 @@ def _get_pending_tool_calls(graph, config: dict) -> list:
 def _extract_tools_used(graph, config: dict) -> list[str]:
     """
     Walks through all messages in the graph state and collects
-    the names of every tool that was called during this run.
+    the unique names of every tool that was called during this run.
     """
     state = graph.get_state(config)
-    tools_used = []
+    tools_used: list[str] = []
     for msg in state.values.get("messages", []):
         for tc in getattr(msg, "tool_calls", []) or []:
-            tools_used.append(tc["name"])
+            tool_name = (
+                tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
+            )
+            if tool_name and tool_name not in tools_used:
+                tools_used.append(tool_name)
     return tools_used
 
 
@@ -203,25 +207,38 @@ def stream_agent_run(
     refresh_token: str,
     access_token: str | None,
     user_name: str = "the user",
+    history: list[dict] | None = None,
 ):
     """
     Starts a new agent run and streams the response token by token.
 
-    This is a generator — iterate it to get SSE strings to forward to the client.
-    The frontend reads these and builds the message in real time.
+    history is a list of {role: "user"|"assistant", content: "..."} dicts
+    representing the last few turns of the conversation. These are prepended
+    to the LLM input so the model has short-term memory of what was said.
     """
     thread_id = str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
     graph = _build_graph(refresh_token, access_token)
 
-    initial_input = {
-        "messages": [
-            SystemMessage(content=build_system_prompt(user_name)),
-            HumanMessage(content=user_message),
-        ]
-    }
+    # Build the messages list: system prompt → recent history → new message.
+    # This gives the LLM context of the last few turns without growing the
+    # context window unboundedly.
+    messages = [SystemMessage(content=build_system_prompt(user_name))]
 
-    yield from _stream_loop(graph, initial_input, config, thread_id)
+    if history:
+        for msg in history:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if not content:
+                continue
+            if role == "user":
+                messages.append(HumanMessage(content=content))
+            elif role == "assistant":
+                messages.append(AIMessage(content=content))
+
+    messages.append(HumanMessage(content=user_message))
+
+    yield from _stream_loop(graph, {"messages": messages}, config, thread_id)
 
 
 def stream_resume_agent_run(
