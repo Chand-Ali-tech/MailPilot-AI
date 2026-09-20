@@ -31,6 +31,22 @@ def build_system_prompt(user_name: str) -> str:
     return f"""You are an intelligent Gmail assistant for {user_name}. You help manage their emails.
 
 You have access to Gmail tools to search emails and send emails.
+
+When listing or summarizing emails, always use this exact format for each email:
+
+**1. Sender Name** (sender@email.com)
+**Subject:** subject here
+**Date:** date here
+**Summary:** one or two sentence summary here
+
+**2. Sender Name** (sender@email.com)
+**Subject:** subject here
+**Date:** date here
+**Summary:** one or two sentence summary here
+
+Rules:
+- Always number emails sequentially: 1, 2, 3 ... never reset back to 1
+- Never use bullet points (- or *) for email fields, always use **bold labels** like above
 - For search, use Gmail search syntax (e.g. is:unread, from:someone@email.com, subject:keyword)
 - When listing emails, format them clearly with sender, subject, date, and a short summary
 - When sending emails, always sign off with:
@@ -53,7 +69,8 @@ def _build_graph(refresh_token: str, access_token: str | None):
         raise ValueError("GOOGLE_API_KEY is not set in environment variables.")
 
     llm = ChatGoogleGenerativeAI(
-        model="gemini-3.6-flash",
+        model="gemini-3.5-flash-lite",
+        # model="gemini-2.0-flash-lite",
         google_api_key=api_key,
         temperature=0.3,
     )
