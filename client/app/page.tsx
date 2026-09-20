@@ -953,7 +953,7 @@ export default function Home() {
                 <div className="flex flex-col items-center justify-center min-h-[50vh] text-center p-2 sm:p-4 md:p-6 max-w-2xl mx-auto animate-in fade-in duration-300">
                   <div className="inline-flex items-center gap-2 rounded-full bg-white border border-[#e8e4de] px-3 py-1 text-[11px] sm:text-xs font-semibold text-[#5c5852] shadow-2xs mb-3 sm:mb-4">
                     <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                    <span>Gemini 2.0 & LangGraph Co-Pilot Ready</span>
+                    <span>Welcome to MailPilot AI</span>
                   </div>
 
                   <h2 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-[#1f1e1c] tracking-tight">
