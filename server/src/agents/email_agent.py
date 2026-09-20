@@ -12,7 +12,6 @@ from src.tools.gmail_tools import create_gmail_tools
 
 load_dotenv()
 
-
 # The checkpointer saves the graph state to SQLite after every step.
 # We create it once at module level so the same connection is reused
 # across all requests instead of opening a new file every time.
@@ -25,12 +24,30 @@ _DB_PATH = os.path.join(
 _conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
 _checkpointer = SqliteSaver(_conn)
 
+# Tools that require explicit human approval before executing
+HITL_TOOLS = {"send_email", "reply_email", "delete_email"}
+
 
 def build_system_prompt(user_name: str) -> str:
     """Returns the system prompt injected at the start of every conversation."""
-    return f"""You are an intelligent Gmail assistant for {user_name}. You help manage their emails.
+    return f"""You are a dedicated, intelligent Gmail assistant for {user_name}. Your SOLE purpose is to help the user manage, read, search, draft, organize, and send their Gmail emails.
 
-You have access to Gmail tools to search emails and send emails.
+DOMAIN & SCOPE RESTRICTIONS:
+- You ONLY handle email and Gmail-related tasks (such as searching emails, reading emails, summarizing messages, drafting replies, finding attachments, managing labels/folders, sending or deleting emails).
+- If the user asks questions or gives instructions completely unrelated to their emails or Gmail workspace (e.g. general trivia, sports records, news, coding tutorials, math, creative writing, or general knowledge like "which team is better in cricket"), you MUST politely decline and remind them that you are strictly an email assistant.
+- Example refusal: "I am your Gmail assistant, so I can only assist with managing, searching, reading, drafting, and organizing your emails. Let me know if you'd like help with anything in your inbox!"
+
+You have access to full Gmail management tools:
+- Search messages: search_emails(query)
+- Read email details & body: read_email(message_id)
+- Read thread conversations: get_thread(thread_id)
+- Create draft without sending: create_draft(to, subject, body)
+- Send new email: send_email(to, subject, body)
+- Reply to conversation: reply_email(thread_id, body)
+- Archive message: archive_email(message_id)
+- Mark read/unread: mark_as_read(message_id), mark_as_unread(message_id)
+- Label emails: add_label(message_id, label)
+- Delete email: delete_email(message_id)
 
 When listing or summarizing emails, always use this exact format for each email:
 
@@ -49,10 +66,10 @@ Rules:
 - Never use bullet points (- or *) for email fields, always use **bold labels** like above
 - Maintain conversational context across multiple turns; refer back to previously discussed emails, subjects, or people when the user asks follow-up questions
 - For search, use Gmail search syntax (e.g. is:unread, from:someone@email.com, subject:keyword)
-- When sending emails, always sign off with:
+- When drafting or sending emails, always sign off with:
   Best Regards,
   {user_name}
-- Be concise and helpful"""
+- Be concise, accurate, and helpful"""
 
 
 def _build_graph(refresh_token: str, access_token: str | None):
@@ -62,7 +79,7 @@ def _build_graph(refresh_token: str, access_token: str | None):
     Key settings:
     - checkpointer: saves state to SQLite so the graph can be paused and resumed
     - interrupt_before=["tools"]: pauses the graph before running any tool,
-      giving us a chance to ask the user for approval
+      giving us a chance to inspect the tool call and ask user approval if needed.
     """
     api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
@@ -136,20 +153,17 @@ def _stream_loop(graph, initial_input, config: dict, thread_id: str):
     Yields SSE-formatted strings:
       - {"type": "token",            "content": "..."}        — one LLM token
       - {"type": "done",             "tools_used": [...]}      — run complete
-      - {"type": "pending_approval", "thread_id": "...", ...}  — needs human OK
-      - {"type": "error",            "message": "..."}         — something went wrong
+      - {"type": "pending_approval", "thread_id": "...", ...}  — needs human approval
+      - {"type": "error",            "message": "..."}         — error occurred
     """
     current_input = initial_input
 
     while True:
         # Stream this iteration of the graph.
-        # stream_mode="messages" gives us (chunk, metadata) pairs where chunk
-        # is an AIMessageChunk with partial content from the LLM.
         for chunk, metadata in graph.stream(
             current_input, config, stream_mode="messages"
         ):
             # Only forward tokens coming from the agent node (the LLM).
-            # We skip tool result messages — those are not user-facing text.
             if metadata.get("langgraph_node") != "agent":
                 continue
 
@@ -174,28 +188,46 @@ def _stream_loop(graph, initial_input, config: dict, thread_id: str):
             # No interrupt — graph has finished
             break
 
-        wants_to_send = any(tc["name"] == "send_email" for tc in pending_calls)
+        # Check if any pending call is a Human-in-the-Loop action
+        hitl_call = next((tc for tc in pending_calls if tc["name"] in HITL_TOOLS), None)
 
-        if wants_to_send:
-            # The LLM wants to send an email — pause and ask the user first.
-            # Send a special SSE event so the frontend shows the approval card.
-            send_call = next(tc for tc in pending_calls if tc["name"] == "send_email")
+        if hitl_call:
+            tool_name = hitl_call["name"]
+            args = hitl_call.get("args", {})
+            pending_action = {"tool": tool_name}
+
+            if tool_name == "send_email":
+                pending_action.update(
+                    {
+                        "to": args.get("to", ""),
+                        "subject": args.get("subject", ""),
+                        "body": args.get("body", ""),
+                    }
+                )
+            elif tool_name == "reply_email":
+                pending_action.update(
+                    {
+                        "thread_id": args.get("thread_id", ""),
+                        "body": args.get("body", ""),
+                    }
+                )
+            elif tool_name == "delete_email":
+                pending_action.update(
+                    {
+                        "message_id": args.get("message_id", ""),
+                    }
+                )
+
             yield _sse(
                 {
                     "type": "pending_approval",
                     "thread_id": thread_id,
-                    "pending_action": {
-                        "tool": "send_email",
-                        "to": send_call["args"].get("to", ""),
-                        "subject": send_call["args"].get("subject", ""),
-                        "body": send_call["args"].get("body", ""),
-                    },
+                    "pending_action": pending_action,
                 }
             )
             return
         else:
-            # Safe tool (e.g. search_emails) — auto-resume without asking the user.
-            # Passing None as input tells LangGraph to continue from the checkpoint.
+            # Safe tool (search, read, thread, draft, label, read/unread, archive) — auto-resume!
             current_input = None
             continue
 
@@ -212,18 +244,12 @@ def stream_agent_run(
 ):
     """
     Starts a new agent run and streams the response token by token.
-
-    history is a list of {role: "user"|"assistant", content: "..."} dicts
-    representing the last few turns of the conversation. These are prepended
-    to the LLM input so the model has short-term memory of what was said.
     """
     thread_id = str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
     graph = _build_graph(refresh_token, access_token)
 
     # Build the messages list: system prompt → recent history → new message.
-    # This gives the LLM context of the last few turns without growing the
-    # context window unboundedly.
     messages = [SystemMessage(content=build_system_prompt(user_name))]
 
     if history:
@@ -251,10 +277,6 @@ def stream_resume_agent_run(
 ):
     """
     Resumes a paused graph and streams the response token by token.
-
-    approved=True  → resume normally, send_email tool executes, email is sent
-    approved=False → inject cancellation ToolMessages so the LLM responds
-                     gracefully ("okay, I've cancelled it") instead of erroring
     """
     config = {"configurable": {"thread_id": thread_id}}
     graph = _build_graph(refresh_token, access_token)
@@ -264,20 +286,15 @@ def stream_resume_agent_run(
         last_msg = state.values["messages"][-1]
         pending_calls = getattr(last_msg, "tool_calls", []) or []
 
-        # Create one cancellation ToolMessage per pending tool call.
-        # Each ToolMessage must reference the exact tool_call_id from the AIMessage
-        # so LangGraph can match them up correctly.
+        # Create cancellation ToolMessages
         cancel_messages = [
             ToolMessage(
                 tool_call_id=tc["id"],
-                content="Action cancelled by the user. Do not attempt to send the email again.",
+                content="Action cancelled by the user. Do not attempt to perform this action again.",
             )
             for tc in pending_calls
         ]
 
-        # Push these into the graph state as if the tools node produced them.
-        # as_node="tools" is required — it tells LangGraph which node these
-        # messages are "coming from" so execution order stays correct.
         graph.update_state(config, {"messages": cancel_messages}, as_node="tools")
 
     yield from _stream_loop(graph, None, config, thread_id)

@@ -10,7 +10,7 @@ from src.controllers.auth_controller import (
     logout,
     refresh_user_token,
 )
-from src.controllers.email_controller import get_latest_emails, get_email_details
+from src.controllers.email_controller import get_email_details
 from src.controllers.agent_controller import (
     ChatRequest,
     ResumeRequest,
@@ -58,16 +58,6 @@ async def handle_refresh(request: Request, session: Session = Depends(get_sessio
 
 
 # Email Routes
-@app.get("/api/emails/latest")
-@app.get("/emails/latest")
-async def latest_emails(
-    request: Request,
-    limit: int = 5,
-    session: Session = Depends(get_session),
-):
-    return await get_latest_emails(request, limit=limit, session=session)
-
-
 @app.get("/api/emails/{message_id}")
 @app.get("/emails/{message_id}")
 async def email_details(

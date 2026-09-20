@@ -54,9 +54,11 @@ interface ChatMessage {
   thread_id?: string;
   pending_action?: {
     tool: string;
-    to: string;
-    subject: string;
-    body: string;
+    to?: string;
+    subject?: string;
+    body?: string;
+    thread_id?: string;
+    message_id?: string;
   };
 }
 
@@ -222,8 +224,6 @@ export default function Home() {
   const [inputPrompt, setInputPrompt] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [latestEmails, setLatestEmails] = useState<EmailItem[]>([]);
-  const [fetchingEmails, setFetchingEmails] = useState(false);
 
   // Conversation history (stored in localStorage)
   const [currentConvId, setCurrentConvId] = useState<string>("");
@@ -362,33 +362,9 @@ export default function Home() {
       });
       setUser(null);
       setMessages([]);
-      setLatestEmails([]);
       setSelectedEmail(null);
     } catch (err) {
       console.error("Failed to logout:", err);
-    }
-  };
-
-  const fetchEmailsFromBackend = async (
-    limit: number = 5,
-  ): Promise<EmailItem[]> => {
-    try {
-      const res = await fetch(
-        `${backendUrl}/api/emails/latest?limit=${limit}`,
-        {
-          credentials: "include",
-        },
-      );
-      if (!res.ok) {
-        throw new Error(`Failed to fetch emails (status ${res.status})`);
-      }
-      const data = await res.json();
-      const list = data.emails || [];
-      setLatestEmails(list);
-      return list;
-    } catch (err) {
-      console.error("Error fetching latest emails:", err);
-      return [];
     }
   };
 
@@ -407,51 +383,6 @@ export default function Home() {
       console.error("Error fetching email details:", err);
     } finally {
       setLoadingEmailDetail(false);
-    }
-  };
-
-  const handleFetchLatestEmailsClick = async () => {
-    setFetchingEmails(true);
-    const userMsg: ChatMessage = {
-      id: Date.now().toString(),
-      sender: "user",
-      text: "Show my latest 5 emails",
-      timestamp: new Date().toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-    };
-    setMessages((prev) => [...prev, userMsg]);
-    setIsTyping(true);
-
-    const emails = await fetchEmailsFromBackend(5);
-    setIsTyping(false);
-    setFetchingEmails(false);
-
-    if (emails.length > 0) {
-      const botMsg: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        sender: "assistant",
-        text: `📬 Retrieved your latest ${emails.length} emails. Click any email card to view its full formatted body, images, and headers:`,
-        timestamp: new Date().toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        type: "emails_list",
-        emails: emails,
-      };
-      setMessages((prev) => [...prev, botMsg]);
-    } else {
-      const botMsg: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        sender: "assistant",
-        text: "Could not retrieve emails or your inbox is empty. Please verify your Gmail connection.",
-        timestamp: new Date().toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      };
-      setMessages((prev) => [...prev, botMsg]);
     }
   };
 
@@ -689,10 +620,10 @@ export default function Home() {
 
   const suggestedPrompts = [
     {
-      title: "Fetch latest 5 emails",
-      description: "Load latest messages with full HTML body & images",
+      title: "Show recent emails",
+      description: "Search and list your latest emails",
       icon: "📬",
-      action: handleFetchLatestEmailsClick,
+      action: () => handleSendMessage("Show my latest 5 emails"),
     },
     {
       title: "Summarize recent updates",
@@ -808,73 +739,6 @@ export default function Home() {
                 )}
               </div>
             </div>
-
-            {/* Quick Actions / Suggested Prompts
-            <div className="mb-5">
-              <span className="px-2 text-xs font-semibold text-[#8c8881] uppercase tracking-wider">
-                Quick Actions
-              </span>
-              <div className="mt-2 space-y-1.5">
-                {suggestedPrompts.map((item, idx) => (
-                  <button
-                    key={idx}
-                    onClick={item.action}
-                    disabled={fetchingEmails}
-                    className="w-full flex items-start gap-2.5 p-2.5 rounded-xl text-left hover:bg-[#f7f5f2] transition-colors group cursor-pointer disabled:opacity-50"
-                  >
-                    <span className="text-base p-1 rounded-lg bg-gray-50 border border-gray-100 group-hover:bg-white transition-colors">
-                      {item.icon}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-[#2d2b28] group-hover:text-[#d94f3d] transition-colors truncate">
-                        {item.title}
-                      </p>
-                      <p className="text-[11px] text-[#8c8881] truncate">
-                        {item.description}
-                      </p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div> */}
-
-            {/* Live Latest Emails Mini-Feed */}
-            {latestEmails.length > 0 && (
-              <div className="mb-4">
-                <div className="flex items-center justify-between px-2 mb-2">
-                  <span className="text-xs font-semibold text-[#8c8881] uppercase tracking-wider">
-                    Recent Messages ({latestEmails.length})
-                  </span>
-                  <button
-                    onClick={() => fetchEmailsFromBackend(5)}
-                    className="text-[11px] text-[#d94f3d] hover:underline cursor-pointer font-medium"
-                  >
-                    Refresh
-                  </button>
-                </div>
-                <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
-                  {latestEmails.map((email) => (
-                    <button
-                      key={email.id}
-                      onClick={() => handleOpenEmailDetail(email.id)}
-                      className="w-full p-2.5 rounded-xl bg-[#faf8f5] hover:bg-white border border-[#ebe7e1] hover:border-[#d94f3d]/40 text-left text-xs transition-all cursor-pointer shadow-2xs group"
-                    >
-                      <div className="flex items-center justify-between gap-1 mb-1">
-                        <span className="font-semibold text-[#242321] group-hover:text-[#d94f3d] truncate max-w-[140px]">
-                          {email.sender.split("<")[0].trim()}
-                        </span>
-                        {email.unread && (
-                          <span className="h-2 w-2 rounded-full bg-[#d94f3d] shrink-0" />
-                        )}
-                      </div>
-                      <p className="text-[#595650] font-medium truncate">
-                        {email.subject}
-                      </p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {/* Account Status Card */}
             <div className="mt-auto pt-4 border-t border-[#e8e4de]">
@@ -1014,19 +878,6 @@ export default function Home() {
             </div>
 
             <div className="flex items-center gap-3">
-              <button
-                onClick={handleFetchLatestEmailsClick}
-                disabled={fetchingEmails}
-                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-[#dedad3] hover:border-[#d94f3d] text-xs font-semibold text-[#242321] hover:text-[#d94f3d] shadow-2xs transition-all cursor-pointer disabled:opacity-50"
-              >
-                <span>📬</span>
-                <span>
-                  {fetchingEmails
-                    ? "Loading Emails..."
-                    : "Fetch Latest 5 Emails"}
-                </span>
-              </button>
-
               <div className="flex items-center gap-2 rounded-full bg-[#fbf9f6] border border-[#e8e4de] px-3 py-1 text-xs">
                 <div className="h-5 w-5 rounded-full bg-[#d94f3d] text-white flex items-center justify-center text-[10px] font-bold">
                   {user.name ? user.name.charAt(0).toUpperCase() : "U"}
@@ -1069,48 +920,114 @@ export default function Home() {
                       msg.pending_action ? (
                       /* ── Approval Card ─────────────────────────────── */
                       <div>
-                        <div className="flex items-center gap-2 mb-3">
-                          <span className="text-base">📧</span>
-                          <span className="font-semibold text-[#1f1e1c] text-sm">
-                            Ready to send this email
-                          </span>
-                        </div>
+                        {msg.pending_action.tool === "send_email" && (
+                          <>
+                            <div className="flex items-center gap-2 mb-3">
+                              <span className="text-base">📤</span>
+                              <span className="font-semibold text-[#1f1e1c] text-sm">
+                                Ready to send this email
+                              </span>
+                            </div>
 
-                        <div className="rounded-xl bg-[#faf8f5] border border-[#e8e4de] p-3.5 space-y-2 text-xs mb-3">
-                          <div className="flex gap-2">
-                            <span className="font-semibold text-[#716e69] w-14 shrink-0">
-                              To:
-                            </span>
-                            <span className="text-[#1f1e1c] font-medium">
-                              {msg.pending_action.to}
-                            </span>
-                          </div>
-                          <div className="flex gap-2">
-                            <span className="font-semibold text-[#716e69] w-14 shrink-0">
-                              Subject:
-                            </span>
-                            <span className="text-[#1f1e1c] font-medium">
-                              {msg.pending_action.subject}
-                            </span>
-                          </div>
-                          <div className="pt-2 border-t border-[#ede9e2]">
-                            <span className="font-semibold text-[#716e69] block mb-1.5">
-                              Body:
-                            </span>
-                            <pre className="whitespace-pre-wrap font-sans text-[#3b3834] leading-relaxed max-h-40 overflow-y-auto">
-                              {msg.pending_action.body}
-                            </pre>
-                          </div>
-                        </div>
+                            <div className="rounded-xl bg-[#faf8f5] border border-[#e8e4de] p-3.5 space-y-2 text-xs mb-3">
+                              <div className="flex gap-2">
+                                <span className="font-semibold text-[#716e69] w-14 shrink-0">
+                                  To:
+                                </span>
+                                <span className="text-[#1f1e1c] font-medium">
+                                  {msg.pending_action.to}
+                                </span>
+                              </div>
+                              <div className="flex gap-2">
+                                <span className="font-semibold text-[#716e69] w-14 shrink-0">
+                                  Subject:
+                                </span>
+                                <span className="text-[#1f1e1c] font-medium">
+                                  {msg.pending_action.subject}
+                                </span>
+                              </div>
+                              <div className="pt-2 border-t border-[#ede9e2]">
+                                <span className="font-semibold text-[#716e69] block mb-1.5">
+                                  Body:
+                                </span>
+                                <pre className="whitespace-pre-wrap font-sans text-[#3b3834] leading-relaxed max-h-40 overflow-y-auto">
+                                  {msg.pending_action.body}
+                                </pre>
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        {msg.pending_action.tool === "reply_email" && (
+                          <>
+                            <div className="flex items-center gap-2 mb-3">
+                              <span className="text-base">↩️</span>
+                              <span className="font-semibold text-[#1f1e1c] text-sm">
+                                Ready to send this reply
+                              </span>
+                            </div>
+
+                            <div className="rounded-xl bg-[#faf8f5] border border-[#e8e4de] p-3.5 space-y-2 text-xs mb-3">
+                              <div className="flex gap-2">
+                                <span className="font-semibold text-[#716e69] w-20 shrink-0">
+                                  Thread ID:
+                                </span>
+                                <span className="text-[#1f1e1c] font-mono text-[11px]">
+                                  {msg.pending_action.thread_id}
+                                </span>
+                              </div>
+                              <div className="pt-2 border-t border-[#ede9e2]">
+                                <span className="font-semibold text-[#716e69] block mb-1.5">
+                                  Reply Content:
+                                </span>
+                                <pre className="whitespace-pre-wrap font-sans text-[#3b3834] leading-relaxed max-h-40 overflow-y-auto">
+                                  {msg.pending_action.body}
+                                </pre>
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        {msg.pending_action.tool === "delete_email" && (
+                          <>
+                            <div className="flex items-center gap-2 mb-3">
+                              <span className="text-base">🗑️</span>
+                              <span className="font-semibold text-red-600 text-sm">
+                                Confirm Moving Email to Trash
+                              </span>
+                            </div>
+
+                            <div className="rounded-xl bg-red-50/50 border border-red-200 p-3.5 space-y-2 text-xs mb-3">
+                              <div className="flex gap-2">
+                                <span className="font-semibold text-red-700 w-24 shrink-0">
+                                  Message ID:
+                                </span>
+                                <span className="text-red-900 font-mono text-[11px]">
+                                  {msg.pending_action.message_id}
+                                </span>
+                              </div>
+                              <p className="text-red-600 text-[11px] pt-1">
+                                ⚠️ This message will be moved to your Gmail
+                                Trash folder.
+                              </p>
+                            </div>
+                          </>
+                        )}
 
                         <div className="flex gap-2">
                           <button
                             onClick={() =>
                               handleResume(msg.id, msg.thread_id!, "approve")
                             }
-                            className="flex-1 flex items-center justify-center gap-1.5 py-2 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold transition-colors cursor-pointer"
+                            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-4 rounded-xl text-white text-xs font-semibold transition-colors cursor-pointer ${
+                              msg.pending_action.tool === "delete_email"
+                                ? "bg-red-500 hover:bg-red-600"
+                                : "bg-emerald-500 hover:bg-emerald-600"
+                            }`}
                           >
-                            ✅ Send Now
+                            {msg.pending_action.tool === "delete_email"
+                              ? "🗑️ Move to Trash"
+                              : "✅ Confirm & Send"}
                           </button>
                           <button
                             onClick={() =>
@@ -1152,19 +1069,30 @@ export default function Home() {
                             Used:
                           </span>
                           {Array.from(new Set(msg.tools_used)).map(
-                            (tool, i) => (
-                              <span
-                                key={i}
-                                className="inline-flex items-center gap-1 rounded-full bg-[#fff7f5] border border-[#f5d5d0] px-2.5 py-0.5 text-[10px] font-semibold text-[#c44332]"
-                              >
-                                {tool === "search_emails"
-                                  ? "🔍"
-                                  : tool === "send_email"
-                                    ? "📤"
-                                    : "🔧"}{" "}
-                                {tool.replace(/_/g, " ")}
-                              </span>
-                            ),
+                            (tool, i) => {
+                              const icons: Record<string, string> = {
+                                search_emails: "🔍",
+                                read_email: "📖",
+                                get_thread: "🧵",
+                                create_draft: "📝",
+                                send_email: "📤",
+                                reply_email: "↩️",
+                                archive_email: "📥",
+                                mark_as_read: "👁️",
+                                mark_as_unread: "✉️",
+                                add_label: "🏷️",
+                                delete_email: "🗑️",
+                              };
+                              return (
+                                <span
+                                  key={i}
+                                  className="inline-flex items-center gap-1 rounded-full bg-[#fff7f5] border border-[#f5d5d0] px-2.5 py-0.5 text-[10px] font-semibold text-[#c44332]"
+                                >
+                                  {icons[tool] || "🔧"}{" "}
+                                  {tool.replace(/_/g, " ")}
+                                </span>
+                              );
+                            },
                           )}
                         </div>
                       )}
@@ -1270,12 +1198,11 @@ export default function Home() {
               {/* Quick suggestions pills */}
               <div className="flex items-center gap-2 overflow-x-auto pb-2.5 mb-1 no-scrollbar text-xs">
                 <button
-                  onClick={handleFetchLatestEmailsClick}
-                  disabled={fetchingEmails}
-                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-[#e0dcce] hover:border-[#d94f3d]/50 hover:bg-[#fff7f5] text-[#595650] hover:text-[#d94f3d] transition-all cursor-pointer disabled:opacity-50"
+                  onClick={() => handleSendMessage("Show my latest 5 emails")}
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-[#e0dcce] hover:border-[#d94f3d]/50 hover:bg-[#fff7f5] text-[#595650] hover:text-[#d94f3d] transition-all cursor-pointer"
                 >
                   <span>📬</span>
-                  <span>Fetch Latest 5 Emails</span>
+                  <span>Recent Emails</span>
                 </button>
                 <button
                   onClick={() =>
