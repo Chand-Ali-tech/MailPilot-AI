@@ -78,52 +78,8 @@ LangGraph Agent (Gemini 2.0 Flash Lite)
 
 ---
 
-## Getting Started
+<img width="1310" height="647" alt="image" src="https://github.com/user-attachments/assets/3eb9a854-549e-4344-aaac-b6788fd5d6ef" />
 
-### 1. Backend Setup
 
-```bash
-cd server
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
+<img width="1310" height="647" alt="image" src="https://github.com/user-attachments/assets/1e545465-9846-42d0-b9e4-c773ffe3ca77" />
 
-Create a `.env` file in `server/`:
-
-```env
-GEMINI_API_KEY=your_gemini_api_key
-GOOGLE_CLIENT_ID=your_google_client_id
-GOOGLE_CLIENT_SECRET=your_google_client_secret
-SESSION_SECRET=your_session_secret_key
-FRONTEND_URL=http://localhost:3000
-```
-
-Start the FastAPI server:
-
-```bash
-uvicorn src.main:app --reload --port 8000
-```
-
----
-
-### 2. Frontend Setup
-
-```bash
-cd client
-npm install
-```
-
-Create a `.env.local` file in `client/`:
-
-```env
-NEXT_PUBLIC_API_URL=http://localhost:8000
-```
-
-Start the development server:
-
-```bash
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) in your browser.
